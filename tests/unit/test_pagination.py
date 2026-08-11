@@ -95,6 +95,14 @@ class TestRefusal:
         with pytest.raises(InvalidCursorError, match="identifier"):
             decode_cursor(payload)
 
+    def test_a_non_string_sort_position_is_refused(self) -> None:
+        payload = base64.urlsafe_b64encode(
+            json.dumps({"v": CURSOR_VERSION, "t": 17, "i": 1}).encode()
+        ).decode()
+
+        with pytest.raises(InvalidCursorError, match="sort position"):
+            decode_cursor(payload)
+
     def test_a_json_array_is_refused(self) -> None:
         payload = base64.urlsafe_b64encode(json.dumps([1, 2, 3]).encode()).decode()
 

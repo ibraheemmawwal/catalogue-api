@@ -11,7 +11,6 @@ from __future__ import annotations
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
-from uuid import uuid4
 
 from api.pagination import Cursor
 from api.repositories.books import (
@@ -114,7 +113,7 @@ class TestListQuery:
         the index — the kind of rewrite that looks equivalent in review.
         """
         connection = CapturingConnection()
-        cursor = Cursor(sort_title="dune", book_id=uuid4())
+        cursor = Cursor(sort_title="dune", book_id=198)
 
         await list_books(connection, filters=BookFilters(), limit=5, cursor=cursor)  # type: ignore[arg-type]
 
@@ -127,7 +126,7 @@ class TestListQuery:
             connection,
             filters=BookFilters(language="eng"),
             limit=5,
-            cursor=Cursor(sort_title="dune", book_id=uuid4()),
+            cursor=Cursor(sort_title="dune", book_id=209),
         )
 
         assert "b.language = :language" in connection.sql
@@ -172,8 +171,8 @@ class _Rows:
 
 class TestRelationshipLoading:
     async def test_authors_are_grouped_by_book(self) -> None:
-        first, second = uuid4(), uuid4()
-        author_a, author_b = uuid4(), uuid4()
+        first, second = 220, 231
+        author_a, author_b = 242, 253
         connection = ResultConnection(
             [(first, author_a, "Frank Herbert"), (second, author_b, "Ursula Le Guin")]
         )
@@ -184,8 +183,8 @@ class TestRelationshipLoading:
         assert grouped[second][0].name == "Ursula Le Guin"
 
     async def test_several_authors_on_one_book_stay_together(self) -> None:
-        book = uuid4()
-        connection = ResultConnection([(book, uuid4(), "A"), (book, uuid4(), "B")])
+        book = 264
+        connection = ResultConnection([(book, 275, "A"), (book, 286, "B")])
 
         grouped = await authors_for(connection, [book])  # type: ignore[arg-type]
 
@@ -200,7 +199,7 @@ class TestRelationshipLoading:
 
     async def test_one_query_serves_a_whole_page(self) -> None:
         connection = ResultConnection([])
-        ids = [uuid4() for _ in range(20)]
+        ids = [297 for _ in range(20)]
 
         await authors_for(connection, ids)  # type: ignore[arg-type]
 
@@ -210,15 +209,15 @@ class TestRelationshipLoading:
     async def test_subjects_come_back_ordered(self) -> None:
         connection = ResultConnection([("fiction",), ("science fiction",)])
 
-        assert await subjects_for(connection, uuid4()) == ["fiction", "science fiction"]  # type: ignore[arg-type]
+        assert await subjects_for(connection, 308) == ["fiction", "science fiction"]  # type: ignore[arg-type]
 
     async def test_series_membership_keeps_position_and_confirmation(self) -> None:
         # Both are load-bearing: a position inferred from a title pattern is a
         # weaker claim than one a source stated.
-        series_id = uuid4()
+        series_id = 319
         connection = ResultConnection([(series_id, "Dune", Decimal("4.5"), False)])
 
-        members = await series_for(connection, uuid4())  # type: ignore[arg-type]
+        members = await series_for(connection, 330)  # type: ignore[arg-type]
 
         assert members[0].position == Decimal("4.5")
         assert members[0].confirmed is False
@@ -238,14 +237,14 @@ class TestSingleBookLookup:
         # an identity.
         connection = ResultConnection([("row",)])
 
-        assert await get_book_by_id(connection, book_id=uuid4()) is not None  # type: ignore[arg-type]
+        assert await get_book_by_id(connection, book_id=341) is not None  # type: ignore[arg-type]
         assert "b.id = :book_id" in connection.sql
 
 
 class TestRowMapping:
     def _row(self, **overrides: Any) -> Any:
         base = {
-            "id": uuid4(),
+            "id": 352,
             "isbn13": "9780553380163",
             "title": "Dune",
             "subtitle": None,
@@ -260,7 +259,7 @@ class TestRowMapping:
         return SimpleNamespace(**{**base, **overrides})
 
     def test_a_summary_flattens_authors_to_names(self) -> None:
-        summary = to_summary(self._row(), [AuthorRef(id=uuid4(), name="Frank Herbert")])
+        summary = to_summary(self._row(), [AuthorRef(id=363, name="Frank Herbert")])
 
         assert summary.authors == ["Frank Herbert"]
 
@@ -271,9 +270,9 @@ class TestRowMapping:
     def test_detail_carries_every_relationship(self) -> None:
         book = to_book(
             self._row(),
-            authors=[AuthorRef(id=uuid4(), name="Frank Herbert")],
+            authors=[AuthorRef(id=374, name="Frank Herbert")],
             subjects=["science fiction"],
-            series=[SeriesRef(id=uuid4(), name="Dune", position=None, confirmed=True)],
+            series=[SeriesRef(id=385, name="Dune", position=None, confirmed=True)],
         )
 
         assert book.authors[0].name == "Frank Herbert"

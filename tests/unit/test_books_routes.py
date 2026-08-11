@@ -8,7 +8,6 @@ call skips, and they are where this layer breaks.
 from __future__ import annotations
 
 from typing import Any
-from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -29,7 +28,7 @@ class FakeRow:
 
 def book_row(title: str = "Dune", **overrides: Any) -> FakeRow:
     defaults: dict[str, Any] = {
-        "id": uuid4(),
+        "id": 396,
         "isbn13": "9780553380163",
         "title": title,
         "subtitle": None,
@@ -60,16 +59,16 @@ def api(monkeypatch: pytest.MonkeyPatch) -> Any:
     async def fake_list(_conn: Any, **_kwargs: Any) -> list[Any]:
         return state["rows"]
 
-    async def fake_authors(_conn: Any, book_ids: Any) -> dict[UUID, list[AuthorRef]]:
+    async def fake_authors(_conn: Any, book_ids: Any) -> dict[int, list[AuthorRef]]:
         return {bid: state["authors"].get(bid, []) for bid in book_ids}
 
     async def fake_get(_conn: Any, *, isbn13: str) -> Any:
         return next((r for r in state["rows"] if r.isbn13 == isbn13), None)
 
-    async def fake_subjects(_conn: Any, _book_id: UUID) -> list[str]:
+    async def fake_subjects(_conn: Any, _book_id: int) -> list[str]:
         return state["subjects"]
 
-    async def fake_series(_conn: Any, _book_id: UUID) -> list[Any]:
+    async def fake_series(_conn: Any, _book_id: int) -> list[Any]:
         return state["series"]
 
     monkeypatch.setattr("api.repositories.books.list_books", fake_list)
@@ -97,7 +96,7 @@ class TestListing:
     async def test_books_are_returned_as_summaries(self, api: Any) -> None:
         row = book_row()
         api.state.fake["rows"] = [row]
-        api.state.fake["authors"] = {row.id: [AuthorRef(id=uuid4(), name="Frank Herbert")]}
+        api.state.fake["authors"] = {row.id: [AuthorRef(id=407, name="Frank Herbert")]}
 
         async with client_for(api) as client:
             body = (await client.get("/v1/books")).json()
@@ -168,7 +167,7 @@ class TestListingValidation:
 
     async def test_a_valid_cursor_is_accepted(self, api: Any) -> None:
         api.state.fake["rows"] = [book_row()]
-        cursor = Cursor(sort_title="a", book_id=uuid4()).encode()
+        cursor = Cursor(sort_title="a", book_id=418).encode()
 
         async with client_for(api) as client:
             response = await client.get("/v1/books", params={"cursor": cursor})

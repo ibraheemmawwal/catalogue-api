@@ -13,7 +13,6 @@ cost paid on every call rather than a few bytes on the wire.
 from __future__ import annotations
 
 from decimal import Decimal
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,7 +22,7 @@ class AuthorRef(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    id: UUID
+    id: int
     name: str
 
 
@@ -32,7 +31,7 @@ class SeriesRef(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    id: UUID
+    id: int
     name: str
     position: Decimal | None = Field(
         default=None,
@@ -52,7 +51,7 @@ class BookSummary(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    id: UUID
+    id: int
     isbn13: str | None = None
     title: str
     authors: list[str] = Field(default_factory=list)
@@ -65,7 +64,7 @@ class Book(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    id: UUID
+    id: int
     isbn13: str | None = None
     title: str
     subtitle: str | None = None

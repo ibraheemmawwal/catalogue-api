@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Any
-from uuid import UUID
 
 from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -155,8 +154,8 @@ async def list_books(
 
 
 async def authors_for(
-    connection: AsyncConnection, book_ids: Sequence[UUID]
-) -> dict[UUID, list[AuthorRef]]:
+    connection: AsyncConnection, book_ids: Sequence[int]
+) -> dict[int, list[AuthorRef]]:
     """Authors for a page of books, in one round trip.
 
     Called once per page rather than once per book: the per-book form is
@@ -178,7 +177,7 @@ async def authors_for(
         {"book_ids": list(book_ids)},
     )
 
-    grouped: dict[UUID, list[AuthorRef]] = {}
+    grouped: dict[int, list[AuthorRef]] = {}
     for book_id, author_id, name in result:
         grouped.setdefault(book_id, []).append(AuthorRef(id=author_id, name=name))
     return grouped
@@ -193,7 +192,7 @@ async def get_book(connection: AsyncConnection, *, isbn13: str) -> Row[Any] | No
     return result.first()
 
 
-async def get_book_by_id(connection: AsyncConnection, *, book_id: UUID) -> Row[Any] | None:
+async def get_book_by_id(connection: AsyncConnection, *, book_id: int) -> Row[Any] | None:
     """One book by internal identifier.
 
     Present because search and the MCP tools hand back IDs for books that have
@@ -206,7 +205,7 @@ async def get_book_by_id(connection: AsyncConnection, *, book_id: UUID) -> Row[A
     return result.first()
 
 
-async def subjects_for(connection: AsyncConnection, book_id: UUID) -> list[str]:
+async def subjects_for(connection: AsyncConnection, book_id: int) -> list[str]:
     result = await connection.execute(
         text(
             """
@@ -222,7 +221,7 @@ async def subjects_for(connection: AsyncConnection, book_id: UUID) -> list[str]:
     return [row[0] for row in result]
 
 
-async def series_for(connection: AsyncConnection, book_id: UUID) -> list[SeriesRef]:
+async def series_for(connection: AsyncConnection, book_id: int) -> list[SeriesRef]:
     result = await connection.execute(
         text(
             """

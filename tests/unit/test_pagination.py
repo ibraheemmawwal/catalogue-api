@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import base64
 import json
-from uuid import UUID, uuid4
 
 import pytest
 from hypothesis import given
@@ -27,15 +26,15 @@ from api.pagination import (
 
 class TestRoundTrip:
     def test_a_cursor_survives_encoding(self) -> None:
-        cursor = Cursor(sort_title="dune", book_id=uuid4())
+        cursor = Cursor(sort_title="dune", book_id=11)
 
         assert decode_cursor(cursor.encode()) == cursor
 
     @given(
         title=st.text(min_size=0, max_size=300),
-        identifier=st.uuids(),
+        identifier=st.integers(min_value=1, max_value=2**63 - 1),
     )
-    def test_any_title_survives(self, title: str, identifier: UUID) -> None:
+    def test_any_title_survives(self, title: str, identifier: int) -> None:
         # Titles carry quotes, emoji, RTL text and newlines. A cursor that
         # breaks on one of them breaks pagination for that book only — the
         # kind of bug that reaches production because nobody sorted there.
@@ -46,7 +45,7 @@ class TestRoundTrip:
     def test_it_is_url_safe(self) -> None:
         # It travels in a query string; + and / would need escaping and some
         # clients would get it wrong.
-        encoded = Cursor(sort_title="a/b+c" * 20, book_id=uuid4()).encode()
+        encoded = Cursor(sort_title="a/b+c" * 20, book_id=22).encode()
 
         assert "+" not in encoded
         assert "/" not in encoded
@@ -66,7 +65,7 @@ class TestRefusal:
     def test_an_older_version_is_refused_by_name(self) -> None:
         """The one failure a caller can act on — by restarting pagination."""
         stale = base64.urlsafe_b64encode(
-            json.dumps({"v": CURSOR_VERSION - 1, "t": "dune", "i": str(uuid4())}).encode()
+            json.dumps({"v": CURSOR_VERSION - 1, "t": "dune", "i": str(33)}).encode()
         ).decode()
 
         with pytest.raises(InvalidCursorError, match="version"):
@@ -80,9 +79,17 @@ class TestRefusal:
         with pytest.raises(InvalidCursorError, match="position"):
             decode_cursor(payload)
 
-    def test_a_non_uuid_identifier_is_refused(self) -> None:
+    @pytest.mark.parametrize(
+        "identifier", ["17", None, 1.5, True], ids=["string", "null", "float", "bool"]
+    )
+    def test_a_non_integer_identifier_is_refused(self, identifier: object) -> None:
+        """`true` matters: bool is an int subclass in Python.
+
+        Without an explicit check it decodes to book id 1 and silently returns
+        the wrong page.
+        """
         payload = base64.urlsafe_b64encode(
-            json.dumps({"v": CURSOR_VERSION, "t": "dune", "i": "17"}).encode()
+            json.dumps({"v": CURSOR_VERSION, "t": "dune", "i": identifier}).encode()
         ).decode()
 
         with pytest.raises(InvalidCursorError, match="identifier"):
@@ -97,7 +104,7 @@ class TestRefusal:
     def test_a_tampered_cursor_does_not_silently_shift_the_page(self) -> None:
         # A cursor is opaque, not signed. It must not be *parseable* into a
         # different valid position by flipping characters.
-        original = Cursor(sort_title="dune", book_id=uuid4()).encode()
+        original = Cursor(sort_title="dune", book_id=44).encode()
         tampered = original[:-4] + "AAAA"
 
         try:
@@ -108,11 +115,11 @@ class TestRefusal:
 
 
 class TestPageBuilding:
-    def _cursor_of(self, row: tuple[str, UUID]) -> Cursor:
+    def _cursor_of(self, row: tuple[str, int]) -> Cursor:
         return Cursor(sort_title=row[0], book_id=row[1])
 
     def test_a_short_result_set_is_the_last_page(self) -> None:
-        rows = [("a", uuid4()), ("b", uuid4())]
+        rows = [("a", 55), ("b", 66)]
 
         page = build_page(rows, limit=5, cursor_of=self._cursor_of)
 
@@ -123,14 +130,14 @@ class TestPageBuilding:
     def test_an_exact_fill_is_still_the_last_page(self) -> None:
         # The boundary that gets this wrong: exactly `limit` rows means there
         # was no extra row, so there is nothing after it.
-        rows = [("a", uuid4()), ("b", uuid4())]
+        rows = [("a", 77), ("b", 88)]
 
         page = build_page(rows, limit=2, cursor_of=self._cursor_of)
 
         assert page.next_cursor is None
 
     def test_an_over_fetch_signals_another_page(self) -> None:
-        rows = [("a", uuid4()), ("b", uuid4()), ("c", uuid4())]
+        rows = [("a", 99), ("b", 110), ("c", 121)]
 
         page = build_page(rows, limit=2, cursor_of=self._cursor_of)
 
@@ -139,14 +146,14 @@ class TestPageBuilding:
 
     def test_the_extra_row_is_not_returned(self) -> None:
         # It was fetched to answer "is there more", not to be shown.
-        rows = [("a", uuid4()), ("b", uuid4()), ("c", uuid4())]
+        rows = [("a", 132), ("b", 143), ("c", 154)]
 
         page = build_page(rows, limit=2, cursor_of=self._cursor_of)
 
         assert [row[0] for row in page.items] == ["a", "b"]
 
     def test_the_cursor_points_at_the_last_returned_row(self) -> None:
-        rows = [("a", uuid4()), ("b", uuid4()), ("c", uuid4())]
+        rows = [("a", 165), ("b", 176), ("c", 187)]
 
         page = build_page(rows, limit=2, cursor_of=self._cursor_of)
 

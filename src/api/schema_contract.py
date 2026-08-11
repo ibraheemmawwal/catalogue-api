@@ -45,7 +45,7 @@ REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
     "book_series": frozenset({"book_id", "series_id", "position", "confirmed"}),
     # Provenance. The MCP surface's reason to exist, so its columns are part of
     # the contract rather than a best-effort read.
-    "book_sources": frozenset({"book_id", "source", "source_id", "fetched_at"}),
+    "book_sources": frozenset({"book_id", "source", "source_id", "first_seen_at", "last_seen_at"}),
     "ingestion_runs": frozenset({"id", "status", "started_at", "records_loaded"}),
 }
 

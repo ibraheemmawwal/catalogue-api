@@ -19,7 +19,6 @@ import binascii
 import json
 from dataclasses import dataclass
 from typing import Any
-from uuid import UUID
 
 # Bumped whenever the payload shape changes. Without it, an old cursor from a
 # client's saved link decodes as garbage under the new reader and produces a
@@ -32,7 +31,7 @@ class Cursor:
     """The position of the last row on the previous page."""
 
     sort_title: str
-    book_id: UUID
+    book_id: int
 
     def encode(self) -> str:
         """URL-safe Base64 of a compact JSON payload.
@@ -41,7 +40,7 @@ class Cursor:
         never change the sort key for.
         """
         payload = json.dumps(
-            {"v": CURSOR_VERSION, "t": self.sort_title, "i": str(self.book_id)},
+            {"v": CURSOR_VERSION, "t": self.sort_title, "i": self.book_id},
             separators=(",", ":"),
         )
         return base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
@@ -77,16 +76,24 @@ def decode_cursor(raw: str) -> Cursor:
         msg = f"cursor version {version!r} is not supported (expected {CURSOR_VERSION})"
         raise InvalidCursorError(msg)
 
-    title, identifier = payload.get("t"), payload.get("i")
-    if not isinstance(title, str) or not isinstance(identifier, str):
+    # Absence and malformation are reported apart on purpose: one says the
+    # cursor came from an older shape, the other that it was corrupted in
+    # transit, and an operator reading a log wants to know which.
+    if "t" not in payload or "i" not in payload:
         msg = "cursor is missing its position fields"
         raise InvalidCursorError(msg)
 
-    try:
-        return Cursor(sort_title=title, book_id=UUID(identifier))
-    except ValueError as error:
+    title, identifier = payload["t"], payload["i"]
+    if not isinstance(title, str):
+        msg = "cursor does not carry a valid sort position"
+        raise InvalidCursorError(msg)
+    # bool is an int subclass; a JSON `true` would otherwise become book id 1
+    # and silently return the wrong page.
+    if not isinstance(identifier, int) or isinstance(identifier, bool):
         msg = "cursor does not carry a valid book identifier"
-        raise InvalidCursorError(msg) from error
+        raise InvalidCursorError(msg)
+
+    return Cursor(sort_title=title, book_id=identifier)
 
 
 @dataclass(frozen=True, slots=True)

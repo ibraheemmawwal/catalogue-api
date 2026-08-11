@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The schema this API is written against. Bumping it is a deliberate act:
+  # the contract test fails loudly if the tag moves under us.
+  PIPELINE_SCHEMA_REF: v2.0.1
+  PINNED_ALEMBIC_REVISION: 5979d87d772f
+
+jobs:
+  quality:
+    name: Lint, format and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: ${{ github.job }}
+      - run: uv sync --all-groups
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy src/
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: ${{ github.job }}
+      - run: uv sync --all-groups
+      - name: Run unit tests
+        run: uv run pytest tests/unit/ --cov=src --cov-report= --cov-fail-under=0
+        env:
+          COVERAGE_FILE: .coverage.unit
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-unit
+          path: .coverage.unit
+          include-hidden-files: true
+          retention-days: 1
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: ${{ github.job }}
+      - run: uv sync --all-groups
+      # The pipeline's own migrations, at the pinned tag. A schema rebuilt from
+      # our contract would have no pg_trgm and no generated search_vector — the
+      # two things the queries most depend on.
+      - name: Run integration tests
+        run: >-
+          uv run pytest tests/integration/ -p no:randomly --timeout=120
+          --cov=src --cov-report= --cov-fail-under=0
+        env:
+          COVERAGE_FILE: .coverage.integration
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-integration
+          path: .coverage.integration
+          include-hidden-files: true
+          retention-days: 1
+
+  coverage:
+    name: Combined coverage gate
+    runs-on: ubuntu-latest
+    # Both, always. The repository layer is SQL and is covered only by the
+    # integration suite; gating on unit coverage alone would report a number
+    # that describes less than it claims.
+    needs: [unit, integration]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: ${{ github.job }}
+      - run: uv sync --all-groups
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+      - run: uv run coverage combine
+      - run: uv run coverage report --show-missing --fail-under=98

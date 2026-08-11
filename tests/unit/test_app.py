@@ -8,7 +8,7 @@ import httpx
 
 from api.config import Settings
 from api.deps import ConnectionDep
-from api.main import create_app
+from api.main import create_app, lifespan
 
 
 class TestConstruction:
@@ -44,8 +44,6 @@ class TestLifespan:
         Driven through the lifespan context directly: ASGITransport does not
         run lifespan events, so a request-based test would assert nothing.
         """
-        from api.main import lifespan
-
         app = create_app(Settings())  # type: ignore[call-arg]
         disposed: list[bool] = []
 

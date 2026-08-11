@@ -59,6 +59,10 @@ ignore = ["PLR2004"]
 # them into an object to satisfy an argument count would remove them from
 # OpenAPI, which is a worse trade than a long signature.
 "src/api/routers/*" = ["PLR0913", "PLR0917"]
+# An MCP tool's parameters *are* its JSON schema, derived from these hints.
+# Collapsing them into an object would hide the filters from the model.
+"src/api/mcp/server.py" = ["PLR0913", "PLR0917"]
+"src/api/mcp/tools.py" = ["PLR0913"]
 # BookFilters takes one keyword per filter for the same reason: each maps to a
 # query parameter, and grouping them would only move the count elsewhere.
 "src/api/repositories/books.py" = ["PLR0913"]

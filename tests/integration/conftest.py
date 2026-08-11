@@ -232,6 +232,54 @@ async def seeded(api_database_url: str) -> AsyncIterator[Any]:
                     {"b": book_id, "s": subject_id},
                 )
 
+        async def series(
+            self, book_id: int, name: str, *, position: str | None = None, confirmed: bool = False
+        ) -> int:
+            async with engine.begin() as connection:
+                series_id = (
+                    await connection.execute(
+                        text(
+                            """
+                            INSERT INTO series (identity_key, name, normalized_name)
+                            VALUES (:key, :name, :norm)
+                            ON CONFLICT (identity_key)
+                            DO UPDATE SET name = EXCLUDED.name
+                            RETURNING id
+                            """
+                        ),
+                        {"key": f"series:{name.lower()}", "name": name, "norm": name.lower()},
+                    )
+                ).scalar_one()
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO book_series (book_id, series_id, position, confirmed)
+                        VALUES (:b, :s, :p, :c) ON CONFLICT DO NOTHING
+                        """
+                    ),
+                    {"b": book_id, "s": series_id, "p": position, "c": confirmed},
+                )
+                return int(series_id)
+
+        async def source(self, book_id: int, name: str, source_id: str = "x") -> None:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO book_sources
+                            (book_id, source, source_id, raw_payload, payload_hash)
+                        VALUES (:b, :src, :sid, '{}'::jsonb, :hash)
+                        ON CONFLICT DO NOTHING
+                        """
+                    ),
+                    {
+                        "b": book_id,
+                        "src": name,
+                        "sid": f"{source_id}-{book_id}",
+                        "hash": f"h-{uuid4()}",
+                    },
+                )
+
     yield Seeder()
 
     await engine.dispose()

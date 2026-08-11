@@ -22,7 +22,8 @@ from api.db import create_engine
 from api.deps import AppState, SchemaCache
 from api.errors import ProblemError, http_exception_handler, problem_handler, validation_handler
 from api.logging import configure_logging
-from api.routers import books, health, search
+from api.mcp.server import build_mcp_server
+from api.routers import books, health, search, series, stats
 
 logger = structlog.get_logger(__name__)
 
@@ -45,8 +46,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     state: AppState = app.state.app_state
     logger.info("api.starting", version=__version__)
+
+    # Starlette does not propagate lifespan to mounted sub-applications, and
+    # the MCP session manager starts its task group there. Without this every
+    # tool call fails with "Task group is not initialized" — the app starts
+    # cleanly, the routes work, and only MCP is dead.
+    mcp_lifespan = app.state.mcp_app.router.lifespan_context
     try:
-        yield
+        async with mcp_lifespan(app.state.mcp_app):
+            yield
     finally:
         await state.engine.dispose()
         logger.info("api.stopped")
@@ -86,6 +94,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # malformed ISBN. Ordering here is load-bearing, not cosmetic.
     app.include_router(search.router)
     app.include_router(books.router)
+    app.include_router(series.router)
+    app.include_router(stats.router)
+
+    # The same engine the routes use. Two independently built query paths over
+    # one database would drift, and the first symptom would be an agent and a
+    # developer getting different answers to the same question.
+    mcp = build_mcp_server(app.state.app_state.engine, active)
+    # Mounted at the root with the sub-app owning the "/mcp" path, rather than
+    # mounted at "/mcp" — the sub-app already serves /mcp internally, so
+    # mounting it there produces /mcp/mcp. Mounted last, so every REST route is
+    # matched before this catch-all is reached.
+    # Mounted at /mcp with the sub-app serving its own root, so the public
+    # path is /mcp exactly once. The sub-app defaults to serving "/mcp"
+    # internally, which mounted at /mcp would yield /mcp/mcp; mounting it at
+    # the root instead makes it a catch-all that shadows every route
+    # registered after it, including the problem-shaped 404 handler.
+    mcp_app = mcp.streamable_http_app(streamable_http_path="/")
+    # Kept on state so the lifespan above can start its session manager.
+    app.state.mcp_app = mcp_app
+    app.mount("/mcp", mcp_app)
 
     return app
 

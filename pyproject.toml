@@ -55,6 +55,9 @@ ignore = ["PLR2004"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["PLR2004", "S101"]
+# uvicorn and httpx are imported inside the MCP session helper so the module
+# still collects when only unit tests are being run.
+"tests/integration/test_mcp_tools.py" = ["PLC0415"]
 # A FastAPI handler's parameters *are* its documented query string. Collapsing
 # them into an object to satisfy an argument count would remove them from
 # OpenAPI, which is a worse trade than a long signature.
@@ -62,7 +65,7 @@ ignore = ["PLR2004"]
 # An MCP tool's parameters *are* its JSON schema, derived from these hints.
 # Collapsing them into an object would hide the filters from the model.
 "src/api/mcp/server.py" = ["PLR0913", "PLR0917"]
-"src/api/mcp/tools.py" = ["PLR0913"]
+"src/api/mcp/tools.py" = ["PLR0913", "PLR0917"]
 # BookFilters takes one keyword per filter for the same reason: each maps to a
 # query parameter, and grouping them would only move the count elsewhere.
 "src/api/repositories/books.py" = ["PLR0913"]

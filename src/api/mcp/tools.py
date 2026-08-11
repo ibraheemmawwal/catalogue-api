@@ -36,9 +36,7 @@ def compact(record: dict[str, Any]) -> dict[str, Any]:
     being absent, and it costs tokens on every record of every call.
     """
     return {
-        key: value
-        for key, value in record.items()
-        if value is not None and value != [] and value != {}
+        key: value for key, value in record.items() if value is not None and value not in ([], {})
     }
 
 

@@ -1,0 +1,95 @@
+"""Settings: the boundary where a misconfiguration should stop the service."""
+
+from __future__ import annotations
+
+import pytest
+from pydantic import ValidationError
+
+from api.config import Settings
+
+
+class TestDatabaseUrl:
+    def test_a_plain_postgres_url_gets_the_async_driver(self) -> None:
+        # Operators paste what their provider gives them; failing at connect
+        # time with a driver error nobody wrote is a poor welcome.
+        settings = Settings(database_url="postgresql://u:p@host/db")  # type: ignore[arg-type]
+
+        assert settings.async_database_url().startswith("postgresql+asyncpg://")
+
+    def test_an_explicit_async_url_is_left_alone(self) -> None:
+        settings = Settings(database_url="postgresql+asyncpg://u:p@host/db")  # type: ignore[arg-type]
+
+        assert settings.async_database_url() == "postgresql+asyncpg://u:p@host/db"
+
+    def test_a_psycopg_url_is_rewritten(self) -> None:
+        # The pipeline uses psycopg; someone will copy its URL across.
+        settings = Settings(database_url="postgresql+psycopg://u:p@host/db")  # type: ignore[arg-type]
+
+        assert settings.async_database_url() == "postgresql+asyncpg://u:p@host/db"
+
+    def test_a_missing_url_is_fatal(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("API_DATABASE_URL", raising=False)
+
+        with pytest.raises(ValidationError, match="database_url"):
+            Settings()  # type: ignore[call-arg]
+
+
+class TestUnknownVariables:
+    def test_a_misspelled_variable_is_fatal(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The failure this guard exists for.
+
+        extra="forbid" cannot catch it: the environment source only reads
+        variables it already has a field for, so the typo is ignored, the
+        default is used, and the service starts up quietly misconfigured.
+        """
+        monkeypatch.setenv("API_POOL_SIZ", "40")
+
+        with pytest.raises(ValidationError, match="API_POOL_SIZ"):
+            Settings()  # type: ignore[call-arg]
+
+    def test_a_correctly_named_variable_is_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("API_POOL_SIZE", "7")
+
+        assert Settings().pool_size == 7  # type: ignore[call-arg]
+
+    def test_unrelated_variables_are_ignored(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Cloud Run injects its own; only the API_ namespace is ours to police.
+        monkeypatch.setenv("PORT", "8080")
+        monkeypatch.setenv("K_SERVICE", "catalogue-api")
+
+        assert Settings()  # type: ignore[call-arg]
+
+
+class TestBounds:
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [("pool_size", 0), ("pool_size", 21), ("statement_timeout_ms", 50), ("max_page_size", 0)],
+    )
+    def test_out_of_range_values_are_rejected(self, field: str, value: int) -> None:
+        with pytest.raises(ValidationError):
+            Settings(database_url="postgresql://u:p@h/d", **{field: value})  # type: ignore[arg-type]
+
+    def test_a_default_page_larger_than_the_maximum_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="default_page_size"):
+            Settings(  # type: ignore[arg-type]
+                database_url="postgresql://u:p@h/d", default_page_size=50, max_page_size=20
+            )
+
+    def test_mcp_defaults_must_fit_inside_the_mcp_cap(self) -> None:
+        with pytest.raises(ValidationError, match="mcp_default_results"):
+            Settings(  # type: ignore[arg-type]
+                database_url="postgresql://u:p@h/d", mcp_default_results=40, mcp_max_results=10
+            )
+
+    def test_the_mcp_cap_is_far_below_the_http_page_cap(self) -> None:
+        # An MCP result lands in a context window, an HTTP page does not.
+        settings = Settings()  # type: ignore[call-arg]
+
+        assert settings.mcp_max_results < settings.max_page_size
+
+    def test_an_unknown_log_level_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="log_level"):
+            Settings(database_url="postgresql://u:p@h/d", log_level="CHATTY")  # type: ignore[arg-type]
+
+    def test_log_level_is_normalised(self) -> None:
+        assert Settings(database_url="postgresql://u:p@h/d", log_level="debug").log_level == "DEBUG"  # type: ignore[arg-type]

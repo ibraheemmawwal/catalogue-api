@@ -22,7 +22,7 @@ from api.db import create_engine
 from api.deps import AppState, SchemaCache
 from api.errors import ProblemError, http_exception_handler, problem_handler, validation_handler
 from api.logging import configure_logging
-from api.routers import health
+from api.routers import books, health
 
 logger = structlog.get_logger(__name__)
 
@@ -81,6 +81,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(RequestValidationError, validation_handler)
 
     app.include_router(health.router)
+    # /v1/books/search must be registered before /v1/books/{isbn13}, or the
+    # literal path is captured by the parameterised one and search 400s as a
+    # malformed ISBN. Ordering here is load-bearing, not cosmetic.
+    app.include_router(books.router)
 
     return app
 

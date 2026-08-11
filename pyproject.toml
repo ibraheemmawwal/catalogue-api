@@ -34,6 +34,7 @@ dev = [
     "testcontainers[postgres]>=4.9",
     "ruff>=0.8",
     "mypy>=1.13",
+    "hypothesis>=6.165.3",
 ]
 
 [build-system]
@@ -53,6 +54,13 @@ ignore = ["PLR2004"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["PLR2004", "S101"]
+# A FastAPI handler's parameters *are* its documented query string. Collapsing
+# them into an object to satisfy an argument count would remove them from
+# OpenAPI, which is a worse trade than a long signature.
+"src/api/routers/*" = ["PLR0913", "PLR0917"]
+# BookFilters takes one keyword per filter for the same reason: each maps to a
+# query parameter, and grouping them would only move the count elsewhere.
+"src/api/repositories/books.py" = ["PLR0913"]
 
 [tool.mypy]
 python_version = "3.12"

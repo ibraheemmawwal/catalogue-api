@@ -35,16 +35,20 @@ async def mcp_session(database_url: str) -> AsyncIterator[ClientSession]:
     import asyncio
 
     task = asyncio.create_task(server.serve())
-    while not server.started:
+    # uvicorn exposes readiness as a polled flag rather than an event, so
+    # this is the interface it gives us.
+    while not server.started:  # noqa: ASYNC110
         await asyncio.sleep(0.02)
     port = server.servers[0].sockets[0].getsockname()[1]
 
     try:
         # v2 yields two streams; earlier releases yielded a third handle.
-        async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                yield session
+        async with (
+            streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            yield session
     finally:
         server.should_exit = True
         await task

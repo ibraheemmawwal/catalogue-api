@@ -54,7 +54,9 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "ARG", "PL", "RU
 ignore = ["PLR2004"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["PLR2004", "S101"]
+# ARG: a pytest fixture is requested by parameter name, so one used purely for
+# its side effect — seeding and truncating the database — reads as unused.
+"tests/*" = ["PLR2004", "S101", "ARG001", "ARG002"]
 # uvicorn and httpx are imported inside the MCP session helper so the module
 # still collects when only unit tests are being run.
 "tests/integration/test_mcp_tools.py" = ["PLC0415"]

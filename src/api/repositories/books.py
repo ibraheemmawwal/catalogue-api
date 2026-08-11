@@ -82,12 +82,16 @@ class BookFilters:
 
         # Semi-joins, not joins: a book with three matching subjects must be
         # returned once, not three times.
+        #
+        # The trigram operator is a single %. text() binds with :name, so it
+        # never needs the %% escaping that raw DBAPI pyformat does — escaping
+        # it sends `%%` to the server, where no such operator exists.
         if self.author is not None:
             parts.append(
                 """EXISTS (
                     SELECT 1 FROM book_authors ba
                     JOIN authors a ON a.id = ba.author_id
-                    WHERE ba.book_id = b.id AND a.name %% :author
+                    WHERE ba.book_id = b.id AND a.name % :author
                 )"""
             )
             params["author"] = self.author
@@ -105,7 +109,7 @@ class BookFilters:
                 """EXISTS (
                     SELECT 1 FROM book_series bse
                     JOIN series se ON se.id = bse.series_id
-                    WHERE bse.book_id = b.id AND se.name %% :series
+                    WHERE bse.book_id = b.id AND se.name % :series
                 )"""
             )
             params["series"] = self.series

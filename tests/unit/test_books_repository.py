@@ -69,11 +69,19 @@ class TestFilterClauses:
         assert "JOIN subjects" in clauses[0]
 
     def test_author_and_series_match_by_trigram(self) -> None:
+        """Exactly one %, not two.
+
+        `assert "%" in clause` passed happily against `%%`, which the server
+        rejects outright — the shape test was satisfied by a substring while
+        every author filter was a 500.
+        """
         author_clause, _ = BookFilters(author="herbert").clauses()
         series_clause, _ = BookFilters(series="dune").clauses()
 
-        assert "%" in author_clause[0]
-        assert "%" in series_clause[0]
+        assert "a.name % :author" in author_clause[0]
+        assert "%%" not in author_clause[0]
+        assert "se.name % :series" in series_clause[0]
+        assert "%%" not in series_clause[0]
 
     def test_year_bounds_apply_directly_to_books(self) -> None:
         clauses, params = BookFilters(year_from=1960, year_to=1970).clauses()

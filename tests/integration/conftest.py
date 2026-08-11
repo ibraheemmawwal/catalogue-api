@@ -18,9 +18,10 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
@@ -125,3 +126,112 @@ def scalars(api_database_url: str) -> Callable[[str], Awaitable[list[Any]]]:
             await engine.dispose()
 
     return run
+
+
+@pytest.fixture
+async def seeded(api_database_url: str) -> AsyncIterator[Any]:
+    """A catalogue with rows, truncated between tests.
+
+    Every write commits before the fixture yields control. Holding one open
+    transaction across the test would deadlock it: the TRUNCATE takes an
+    exclusive lock, and the test queries on a separate connection, which then
+    waits on a transaction that cannot commit until the test finishes.
+
+    Rows go in through raw SQL rather than the pipeline's loader. This suite
+    asks whether *our* queries are right against the real schema; routing the
+    setup through the pipeline's write path would let a load-layer bug read as
+    an API bug.
+    """
+    engine = create_async_engine(api_database_url)
+
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "TRUNCATE books, authors, subjects, series, book_authors, "
+                "book_subjects, book_series RESTART IDENTITY CASCADE"
+            )
+        )
+
+    class Seeder:
+        async def book(
+            self,
+            title: str,
+            *,
+            isbn13: str | None = None,
+            year: int | None = None,
+            language: str | None = "eng",
+        ) -> int:
+            async with engine.begin() as connection:
+                row = await connection.execute(
+                    text(
+                        """
+                        INSERT INTO books (identity_key, isbn13, title, published_year,
+                                           language, content_hash)
+                        VALUES (:key, :isbn13, :title, :year, :language, :hash)
+                        RETURNING id
+                        """
+                    ),
+                    {
+                        # Unique per row: several tests insert the same title
+                        # on purpose, and identity_key is unique upstream.
+                        "key": f"test:{title}:{uuid4()}",
+                        "isbn13": isbn13,
+                        "title": title,
+                        "year": year,
+                        "language": language,
+                        "hash": f"hash-{uuid4()}",
+                    },
+                )
+                return int(row.scalar_one())
+
+        async def author(self, book_id: int, name: str) -> None:
+            async with engine.begin() as connection:
+                author_id = (
+                    await connection.execute(
+                        text(
+                            """
+                            INSERT INTO authors (name, normalized_name)
+                            VALUES (:name, :norm)
+                            ON CONFLICT (normalized_name)
+                            DO UPDATE SET name = EXCLUDED.name
+                            RETURNING id
+                            """
+                        ),
+                        {"name": name, "norm": name.lower()},
+                    )
+                ).scalar_one()
+                await connection.execute(
+                    text(
+                        "INSERT INTO book_authors (book_id, author_id) "
+                        "VALUES (:b, :a) ON CONFLICT DO NOTHING"
+                    ),
+                    {"b": book_id, "a": author_id},
+                )
+
+        async def subject(self, book_id: int, name: str) -> None:
+            async with engine.begin() as connection:
+                subject_id = (
+                    await connection.execute(
+                        text(
+                            """
+                            INSERT INTO subjects (name, normalized_name)
+                            VALUES (:name, :norm)
+                            ON CONFLICT (normalized_name)
+                            DO UPDATE SET name = EXCLUDED.name
+                            RETURNING id
+                            """
+                        ),
+                        {"name": name, "norm": name.lower()},
+                    )
+                ).scalar_one()
+                await connection.execute(
+                    text(
+                        "INSERT INTO book_subjects (book_id, subject_id) "
+                        "VALUES (:b, :s) ON CONFLICT DO NOTHING"
+                    ),
+                    {"b": book_id, "s": subject_id},
+                )
+
+    yield Seeder()
+
+    await engine.dispose()

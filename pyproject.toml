@@ -35,6 +35,7 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
     "hypothesis>=6.165.3",
+    "pytest-timeout>=2.4.0",
 ]
 
 [build-system]

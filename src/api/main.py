@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.exceptions import HTTPException
 
 from api import __version__
@@ -110,7 +111,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # internally, which mounted at /mcp would yield /mcp/mcp; mounting it at
     # the root instead makes it a catch-all that shadows every route
     # registered after it, including the problem-shaped 404 handler.
-    mcp_app = mcp.streamable_http_app(streamable_http_path="/")
+    mcp_app = mcp.streamable_http_app(
+        streamable_http_path="/",
+        # Cloud Run round-robins across instances, so a session opened on one
+        # can be continued on another that has never heard of it. Stateless
+        # keeps every request self-contained, which is the only thing that
+        # works behind a load balancer without session affinity.
+        stateless_http=True,
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=active.mcp_allowed_hosts,
+            allowed_origins=["*"],
+        ),
+    )
     # Kept on state so the lifespan above can start its session manager.
     app.state.mcp_app = mcp_app
     app.mount("/mcp", mcp_app)

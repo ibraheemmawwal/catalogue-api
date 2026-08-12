@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     mcp_max_results: int = Field(default=50, ge=1, le=100)
     mcp_default_results: int = Field(default=10, ge=1, le=50)
 
+    # Hosts the MCP transport will answer for. Its DNS-rebinding protection
+    # rejects anything else with 421, which is correct and invisible locally:
+    # a test client always arrives as 127.0.0.1, a deployed one never does.
+    mcp_allowed_hosts: list[str] = Field(default_factory=lambda: ["127.0.0.1", "localhost"])
+
     readiness_cache_seconds: float = Field(default=60.0, ge=0, le=300)
     log_level: str = Field(default="INFO")
 

@@ -28,6 +28,38 @@ class Checks:
             self.failures.append(name)
 
 
+async def check_mcp(base: str, checks: Checks) -> None:
+    """Complete a handshake and call a tool, the way an agent would."""
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    expected = {
+        "search_books",
+        "get_book",
+        "get_series",
+        "get_book_provenance",
+        "catalogue_stats",
+    }
+    try:
+        async with (
+            streamable_http_client(f"{base}/mcp") as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            names = {tool.name for tool in (await session.list_tools()).tools}
+            checks.check("MCP handshake completes", True)
+            checks.check("all five tools are offered", names == expected, ", ".join(sorted(names)))
+
+            body = (await session.call_tool("catalogue_stats", {})).structured_content or {}
+            checks.check(
+                "an MCP tool returns real data",
+                body.get("books", 0) > 0,
+                f"{body.get('books', 0)} books",
+            )
+    except Exception as error:
+        checks.check("MCP handshake completes", False, f"{type(error).__name__}: {error}"[:90])
+
+
 async def main(base: str) -> int:
     checks = Checks()
 
@@ -85,23 +117,33 @@ async def main(base: str) -> int:
         )
         checks.check("statistics name their sources", bool(body.get("sources")))
 
-        # The problem shape a client depends on.
-        missing = await client.get("/v1/books/9780000000000")
+        # The problem shape a client depends on, and the distinction the API
+        # makes between the two ways an ISBN can fail. A malformed one is a
+        # 400 — "you mistyped it" — and only a well-formed but absent one is a
+        # 404. Conflating them is what the first draft of this check did.
+        malformed = await client.get("/v1/books/9780000000000")
         checks.check(
-            "an unknown ISBN returns a problem document",
-            missing.status_code == 404
-            and missing.headers.get("content-type") == "application/problem+json",
+            "a malformed ISBN returns a 400 problem document",
+            malformed.status_code == 400
+            and malformed.headers.get("content-type") == "application/problem+json",
+            f"status={malformed.status_code}",
         )
 
-        # MCP. A 307 or 200 both mean the transport is mounted and answering;
-        # a 404 means the mount path is wrong, which is the failure that
-        # actually happened once.
-        mcp = await client.get("/mcp", follow_redirects=False)
+        # Valid check digit, deliberately not a real published ISBN. Getting
+        # this wrong the first time made the check assert 400 twice and prove
+        # nothing about the 404 path.
+        absent = await client.get("/v1/books/9785550000007")
         checks.check(
-            "/mcp is mounted",
-            mcp.status_code in {200, 307, 400, 405, 406},
-            f"status={mcp.status_code}",
+            "a well-formed but absent ISBN returns a 404 problem document",
+            absent.status_code == 404
+            and absent.headers.get("content-type") == "application/problem+json",
+            f"status={absent.status_code}",
         )
+
+    # MCP, over a real client session. Checking that /mcp merely answers is
+    # not enough: it returned 307 while the handshake was failing with a 421,
+    # so a status-code check passed against a completely broken surface.
+    await check_mcp(base, checks)
 
     print()
     if checks.failures:

@@ -36,4 +36,7 @@ USER catalogue
 EXPOSE 8000
 
 # Cloud Run injects PORT and expects it honoured; the default is for local runs.
-CMD ["sh", "-c", "exec uvicorn api.main:create_app --factory --host 0.0.0.0 --port ${PORT:-8000}"]
+# --proxy-headers: Cloud Run terminates TLS, so without this uvicorn believes
+# it is serving plain HTTP and every redirect it issues points at http://,
+# which a client on https:// then refuses.
+CMD ["sh", "-c", "exec uvicorn api.main:create_app --factory --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]

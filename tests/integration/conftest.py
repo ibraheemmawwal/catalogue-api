@@ -69,7 +69,7 @@ def postgres_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     if shutil.which("docker") is None:
         pytest.skip("docker is required for integration tests")
 
-    with PostgresContainer("postgres:16-alpine") as container:
+    with PostgresContainer("postgres:18-alpine") as container:
         # Three drivers are in play and each needs its own spelling:
         # testcontainers reports psycopg2, the pipeline's Alembic runs on
         # psycopg (v3) inside its own environment, and this service uses

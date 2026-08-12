@@ -71,7 +71,10 @@ def to_candidate(doc: dict[str, Any]) -> dict[str, Any] | None:
 async def main() -> int:
     if not CONTACT:
         print(
-            "PIPELINE_OPENLIBRARY_CONTACT_EMAIL is required — the source asks to be told who is calling."
+            print(
+                "PIPELINE_OPENLIBRARY_CONTACT_EMAIL is required — "
+                "the source asks to be told who is calling."
+            )
         )
         return 1
 

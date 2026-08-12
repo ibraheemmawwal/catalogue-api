@@ -1,0 +1,15 @@
+# Cloud Build config, because the Dockerfile lives under docker/ and
+# `gcloud builds submit --tag` only looks for one at the repository root.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - docker/api.Dockerfile
+      - -t
+      - ${_IMAGE}
+      - .
+images:
+  - ${_IMAGE}
+options:
+  logging: CLOUD_LOGGING_ONLY

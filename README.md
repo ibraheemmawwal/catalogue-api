@@ -46,6 +46,8 @@ is the free tier working as intended, not a fault.
 | `get_book_provenance` | "Where did this come from, and do sources agree?" |
 | `list_contested_books` | "Which records should I not trust?" |
 | `catalogue_stats` | "How complete is this data?" |
+| `describe_schema` | "What can I query?" |
+| `run_sql` | "How many books per decade?" — anything the tools above cannot express |
 
 A real answer from the live service:
 
@@ -60,6 +62,42 @@ Disagreements are reported, not resolved. The sources are not equally reliable
 — one is an unofficial scrape used only to adjudicate records where the
 documented sources already conflict — so a conflict is information the caller
 should see rather than something to hide behind a single confident value.
+
+### Letting an agent write SQL
+
+The six typed tools answer the questions worth naming. `run_sql` exists for the
+ones that are not worth naming — aggregates, groupings, cross-table comparisons
+— and `describe_schema` exists because an agent cannot write a sensible query
+against a schema it cannot see. They ship together for that reason.
+
+It is the only place in this service where a caller supplies a query rather
+than choosing a tool, and the endpoint is unauthenticated, so the boundary is
+three layers deep:
+
+1. **The parser.** A single statement, `SELECT` only, and only against nine
+   catalogue tables — an allowlist, because a denylist has to anticipate every
+   system view and only has to be wrong once. Rejections name the rule and the
+   remedy, so an agent corrects itself instead of stopping.
+2. **The transaction.** `READ ONLY` with a five-second statement timeout,
+   enforced by PostgreSQL rather than by parsing.
+3. **The role.** `SET LOCAL ROLE catalogue_readonly`, granted `SELECT` on those
+   nine tables and nothing else.
+
+The third layer is there because the first is the one most likely to be wrong.
+The parser's first draft accepted `FROM "pg_authid"`, `FROM /*x*/ pg_authid`,
+`FROM books, pg_authid` and `SELECT version()` — a quoted identifier, a
+comment, the second entry in a comma list, and a query reading no table at all.
+Each is now a test, and the role is what would have contained them.
+
+Provision the role once per database, including locally:
+
+```bash
+psql "$API_DATABASE_URL" -f scripts/sql/readonly_role.sql
+```
+
+Without it `run_sql` fails closed and says so. Running with the service's own
+grants because the restricted role is missing is the silent downgrade the layer
+exists to prevent.
 
 Three things shape the tool design:
 

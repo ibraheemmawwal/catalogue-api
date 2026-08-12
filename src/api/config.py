@@ -62,7 +62,13 @@ class Settings(BaseSettings):
     # Hosts the MCP transport will answer for. Its DNS-rebinding protection
     # rejects anything else with 421, which is correct and invisible locally:
     # a test client always arrives as 127.0.0.1, a deployed one never does.
-    mcp_allowed_hosts: list[str] = Field(default_factory=lambda: ["127.0.0.1", "localhost"])
+    # The ":*" forms matter: a client sends Host as "127.0.0.1:8000", port
+    # included, so a bare "127.0.0.1" never matches and every local request is
+    # rejected with 421. Deployed hosts arrive without a port and need the bare
+    # form.
+    mcp_allowed_hosts: list[str] = Field(
+        default_factory=lambda: ["127.0.0.1", "127.0.0.1:*", "localhost", "localhost:*"]
+    )
 
     readiness_cache_seconds: float = Field(default=60.0, ge=0, le=300)
     log_level: str = Field(default="INFO")

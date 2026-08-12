@@ -37,6 +37,7 @@ async def check_mcp(base: str, checks: Checks) -> None:
         "get_book",
         "get_series",
         "get_book_provenance",
+        "list_contested_books",
         "catalogue_stats",
     }
     try:
@@ -47,7 +48,7 @@ async def check_mcp(base: str, checks: Checks) -> None:
             await session.initialize()
             names = {tool.name for tool in (await session.list_tools()).tools}
             checks.check("MCP handshake completes", True)
-            checks.check("all five tools are offered", names == expected, ", ".join(sorted(names)))
+            checks.check("every tool is offered", names == expected, ", ".join(sorted(names)))
 
             body = (await session.call_tool("catalogue_stats", {})).structured_content or {}
             checks.check(

@@ -89,6 +89,19 @@ reliable — one is an unofficial scrape — so a disagreement is information, n
 an error.
 """
 
+LIST_CONTESTED_BOOKS = """\
+List the books whose sources most disagree with each other.
+
+Call this when the user asks which records are unreliable, what needs review,
+or where the data is weakest — and before presenting the catalogue as a whole
+as though every entry were equally trustworthy.
+
+Each result gives the number of sources, the number of fields they conflict on,
+and which fields those are. A book with no conflicts is corroborated; a book
+with one source is unanimous only because nothing has contradicted it yet,
+which is not the same thing and is excluded here.
+"""
+
 CATALOGUE_STATS = """\
 Report what is in the catalogue and how complete it is: totals, per-field
 coverage percentages, which sources contributed, and when it last updated.

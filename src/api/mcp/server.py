@@ -71,9 +71,13 @@ def build_mcp_server(engine: AsyncEngine, settings: Settings) -> MCPServer:
     ) -> dict[str, Any]:
         return await tools.get_book_provenance(isbn13=isbn13, id=id)
 
+    @server.tool(name="list_contested_books", description=descriptions.LIST_CONTESTED_BOOKS)
+    async def list_contested_books(limit: int = 10) -> dict[str, Any]:
+        return await tools.list_contested_books(limit=limit)
+
     @server.tool(name="catalogue_stats", description=descriptions.CATALOGUE_STATS)
     async def catalogue_stats() -> dict[str, Any]:
         return await tools.catalogue_stats()
 
-    logger.info("mcp.server_built", tools=5)
+    logger.info("mcp.server_built", tools=6)
     return server

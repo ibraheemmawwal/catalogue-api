@@ -147,3 +147,32 @@ class TestDriverParameterTranslation:
         )
 
         assert settings.async_database_url().startswith("postgresql+asyncpg://")
+
+
+class TestMcpAllowedHosts:
+    """The transport's DNS-rebinding allowlist.
+
+    Getting this wrong rejects every request with 421 while the app starts
+    cleanly and every other route works — so it broke the MCP integration suite
+    silently once, when a deployment fix was made without re-running it.
+    """
+
+    def test_local_hosts_include_the_port_form(self) -> None:
+        # A client sends Host as "127.0.0.1:8000". A bare "127.0.0.1" never
+        # matches that, and the transport answers 421.
+        hosts = Settings().mcp_allowed_hosts  # type: ignore[call-arg]
+
+        assert "127.0.0.1:*" in hosts
+        assert "localhost:*" in hosts
+
+    def test_bare_hosts_are_kept_for_deployments(self) -> None:
+        # A deployed request arrives on port 443 and Host carries no port.
+        hosts = Settings().mcp_allowed_hosts  # type: ignore[call-arg]
+
+        assert "127.0.0.1" in hosts
+        assert "localhost" in hosts
+
+    def test_it_can_be_overridden_for_a_deployment(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("API_MCP_ALLOWED_HOSTS", '["example.run.app"]')
+
+        assert Settings().mcp_allowed_hosts == ["example.run.app"]  # type: ignore[call-arg]

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from api.config import Settings
 from api.repositories import books as book_repo
+from api.repositories import contested as contested_repo
 from api.repositories import provenance as provenance_repo
 from api.repositories import search as search_repo
 from api.repositories import series as series_repo
@@ -276,6 +277,47 @@ class CatalogueTools:
                 for source in sources
             ],
             "disagreements": find_disagreements(sources, row),
+        }
+
+    async def list_contested_books(self, limit: int = 10) -> dict[str, Any]:
+        """Books whose sources disagree. See descriptions.LIST_CONTESTED_BOOKS."""
+        capped = max(1, min(limit, self._settings.mcp_max_results))
+
+        async with self._engine.connect() as connection:
+            candidates = await contested_repo.multi_source_books(connection, limit=200)
+            payloads = await contested_repo.payloads_for(connection, [row.id for row in candidates])
+
+        scored: list[dict[str, Any]] = []
+        for row in candidates:
+            conflicts = find_disagreements(payloads.get(row.id, []), row)
+            if not conflicts:
+                continue
+            scored.append(
+                compact(
+                    {
+                        "id": row.id,
+                        "isbn13": row.isbn13,
+                        "title": row.title,
+                        "sources": row.sources,
+                        "conflicting_fields": [c["field"] for c in conflicts],
+                        "conflict_count": len(conflicts),
+                    }
+                )
+            )
+
+        # Most-contested first: the list is for triage, so the order is the
+        # answer as much as the contents are.
+        scored.sort(key=lambda item: item["conflict_count"], reverse=True)
+
+        return {
+            "contested": scored[:capped],
+            "shown": len(scored[:capped]),
+            "total_contested": len(scored),
+            "note": (
+                "Only books reported on by more than one source can appear here. "
+                "A single-source book is unanimous because nothing has contradicted "
+                "it, which is not the same as being corroborated."
+            ),
         }
 
     async def catalogue_stats(self) -> dict[str, Any]:

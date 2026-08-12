@@ -61,7 +61,7 @@ async def call(session: ClientSession, tool: str, **arguments: Any) -> dict[str,
 
 
 class TestDiscovery:
-    async def test_all_five_tools_are_offered(self, seeded: Any, api_database_url: str) -> None:
+    async def test_every_tool_is_offered(self, seeded: Any, api_database_url: str) -> None:
         async with mcp_session(api_database_url) as session:
             names = {tool.name for tool in (await session.list_tools()).tools}
 
@@ -70,6 +70,7 @@ class TestDiscovery:
             "get_book",
             "get_series",
             "get_book_provenance",
+            "list_contested_books",
             "catalogue_stats",
         }
 
@@ -357,3 +358,51 @@ class TestNoDrift:
         assert rest["title"] == mcp["title"]
         assert rest["id"] == mcp["id"]
         assert [a["name"] for a in rest["authors"]] == mcp["authors"]
+
+
+class TestContestedBooks:
+    """The triage tool.
+
+    A catalogue merged from sources of differing reliability does not have
+    uniform confidence, and presenting it as though it does is the failure this
+    tool exists to prevent.
+    """
+
+    async def test_a_book_with_one_source_is_not_contested(
+        self, seeded: Any, api_database_url: str
+    ) -> None:
+        # Unanimous because nothing has contradicted it, which is not the same
+        # as corroborated.
+        book_id = await seeded.book("Alone", isbn13="9780553380163")
+        await seeded.source(book_id, "openlibrary")
+
+        async with mcp_session(api_database_url) as session:
+            result = await call(session, "list_contested_books")
+
+        assert result["contested"] == []
+
+    async def test_agreeing_sources_are_not_contested(
+        self, seeded: Any, api_database_url: str
+    ) -> None:
+        book_id = await seeded.book("Agreed")
+        await seeded.source(book_id, "openlibrary")
+        await seeded.source(book_id, "googlebooks")
+
+        async with mcp_session(api_database_url) as session:
+            result = await call(session, "list_contested_books")
+
+        assert result["contested"] == []
+
+    async def test_the_note_explains_what_absence_means(
+        self, seeded: Any, api_database_url: str
+    ) -> None:
+        async with mcp_session(api_database_url) as session:
+            result = await call(session, "list_contested_books")
+
+        assert "not the same as being corroborated" in result["note"]
+
+    async def test_the_limit_is_capped(self, seeded: Any, api_database_url: str) -> None:
+        async with mcp_session(api_database_url) as session:
+            result = await call(session, "list_contested_books", limit=500)
+
+        assert result["shown"] <= 50

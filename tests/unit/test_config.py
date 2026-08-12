@@ -93,3 +93,57 @@ class TestBounds:
 
     def test_log_level_is_normalised(self) -> None:
         assert Settings(database_url="postgresql://u:p@h/d", log_level="debug").log_level == "DEBUG"  # type: ignore[arg-type]
+
+
+class TestDriverParameterTranslation:
+    """libpq query parameters that asyncpg does not accept.
+
+    Only reachable against a database that actually uses TLS, so a local
+    container never triggers them and every managed provider does. This cost a
+    500 on the first deploy.
+    """
+
+    def test_sslmode_becomes_ssl(self) -> None:
+        settings = Settings(  # type: ignore[arg-type]
+            database_url="postgresql://u:p@host/db?sslmode=require"
+        )
+
+        assert "ssl=require" in settings.async_database_url()
+        assert "sslmode" not in settings.async_database_url()
+
+    def test_tls_is_not_silently_dropped(self) -> None:
+        # Dropping sslmode instead of translating it would downgrade to
+        # plaintext against a provider that requires TLS — a worse failure than
+        # the TypeError, because it succeeds.
+        settings = Settings(  # type: ignore[arg-type]
+            database_url="postgresql://u:p@host/db?sslmode=require"
+        )
+
+        assert "ssl=" in settings.async_database_url()
+
+    def test_channel_binding_is_dropped(self) -> None:
+        # asyncpg negotiates it automatically and rejects the argument.
+        settings = Settings(  # type: ignore[arg-type]
+            database_url="postgresql://u:p@host/db?sslmode=require&channel_binding=require"
+        )
+
+        assert "channel_binding" not in settings.async_database_url()
+
+    def test_unrecognised_parameters_survive(self) -> None:
+        settings = Settings(  # type: ignore[arg-type]
+            database_url="postgresql://u:p@host/db?application_name=x"
+        )
+
+        assert "application_name=x" in settings.async_database_url()
+
+    def test_a_url_without_a_query_is_unchanged(self) -> None:
+        settings = Settings(database_url="postgresql://u:p@host/db")  # type: ignore[arg-type]
+
+        assert settings.async_database_url() == "postgresql+asyncpg://u:p@host/db"
+
+    def test_the_driver_is_still_rewritten(self) -> None:
+        settings = Settings(  # type: ignore[arg-type]
+            database_url="postgresql://u:p@host/db?sslmode=require"
+        )
+
+        assert settings.async_database_url().startswith("postgresql+asyncpg://")

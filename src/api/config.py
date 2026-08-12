@@ -99,11 +99,39 @@ class Settings(BaseSettings):
         """The URL with the async driver SQLAlchemy needs.
 
         Operators paste whatever their provider hands them, which is a
-        ``postgresql://`` URL. Rewriting it here beats failing at connect time
-        with a driver error nobody wrote.
+        ``postgresql://`` URL carrying libpq query parameters. Both halves of
+        that need translating, and the second half only fails against a real
+        hosted database:
+
+        * ``postgresql://`` becomes ``postgresql+asyncpg://``.
+        * ``sslmode=require`` becomes ``ssl=require``. asyncpg has no
+          ``sslmode`` argument and raises ``TypeError`` at connect time — but
+          only where TLS is actually in play, so a local container never sees
+          it and a managed provider always does.
+
+        ``channel_binding`` is dropped for the same reason: libpq understands
+        it, asyncpg does not, and asyncpg negotiates it automatically anyway.
         """
         url = str(self.database_url)
         for prefix in ("postgresql+psycopg://", "postgresql+asyncpg://", "postgresql://"):
             if url.startswith(prefix):
-                return "postgresql+asyncpg://" + url[len(prefix) :]
-        return url
+                url = "postgresql+asyncpg://" + url[len(prefix) :]
+                break
+
+        base, separator, query = url.partition("?")
+        if not separator:
+            return base
+
+        translated: list[str] = []
+        for parameter in query.split("&"):
+            name, _, value = parameter.partition("=")
+            if name == "sslmode":
+                # Dropping it instead would silently downgrade to plaintext
+                # against a provider that requires TLS.
+                translated.append(f"ssl={value}")
+            elif name == "channel_binding":
+                continue
+            elif parameter:
+                translated.append(parameter)
+
+        return f"{base}?{'&'.join(translated)}" if translated else base

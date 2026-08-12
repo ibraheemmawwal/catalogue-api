@@ -14,6 +14,8 @@ import asyncio
 import sys
 
 import httpx
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 
 TIMEOUT = 45.0  # Cloud Run cold start plus a Neon wake-up.
 
@@ -30,9 +32,6 @@ class Checks:
 
 async def check_mcp(base: str, checks: Checks) -> None:
     """Complete a handshake and call a tool, the way an agent would."""
-    from mcp import ClientSession
-    from mcp.client.streamable_http import streamable_http_client
-
     expected = {
         "search_books",
         "get_book",

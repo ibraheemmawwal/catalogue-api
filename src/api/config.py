@@ -23,6 +23,13 @@ class Settings(BaseSettings):
         env_prefix=ENV_PREFIX,
         extra="forbid",
         frozen=True,
+        # Read for local runs only. Deployed environments inject real
+        # variables, and the deployed database password comes from Secret
+        # Manager rather than any file — a credential in a Cloud Run
+        # environment variable is readable by anyone with console access and
+        # shows up in `gcloud run services describe`.
+        env_file=".env",
+        env_file_encoding="utf-8",
     )
 
     database_url: PostgresDsn

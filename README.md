@@ -93,8 +93,17 @@ reconstruction cannot reproduce.
 
 ```bash
 uv sync --all-groups
-API_DATABASE_URL=postgresql://... uv run catalogue-api   # http://localhost:8000/docs
+cp .env.example .env        # then fill in API_DATABASE_URL
+uv run catalogue-api        # http://localhost:8000/docs
 ```
+
+`.env` is read for local runs only and is gitignored. The deployed service does
+not use it: its database URL comes from Secret Manager, because a credential set
+as a plain Cloud Run environment variable is readable by anyone with console
+access and appears in `gcloud run services describe`.
+
+Tests ignore `.env` entirely — otherwise whether the suite passes would depend on
+an untracked file on one machine.
 
 ```bash
 docker build -f docker/api.Dockerfile -t catalogue-api .

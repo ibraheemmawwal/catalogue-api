@@ -21,7 +21,15 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix=ENV_PREFIX,
-        extra="forbid",
+        # Not "forbid". The .env file is shared with tooling — `neon env pull`
+        # writes DATABASE_URL, DATABASE_URL_UNPOOLED and NEON_BRANCH into it —
+        # and every one of those is an extra this service has no field for, so
+        # "forbid" turns a routine credential refresh into a startup crash.
+        # Ignoring them costs nothing the prefix was not already buying: an
+        # unprefixed DATABASE_URL cannot populate database_url (the source only
+        # matches API_*, so it is still a missing-field error), and a
+        # misspelled API_* variable is caught by the validator below.
+        extra="ignore",
         frozen=True,
         # Read for local runs only. Deployed environments inject real
         # variables, and the deployed database password comes from Secret

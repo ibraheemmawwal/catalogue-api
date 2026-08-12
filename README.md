@@ -1,5 +1,8 @@
 # catalogue-api
 
+**Live:** [https://book-catalogue-27035467540.europe-west2.run.app/docs](https://book-catalogue-27035467540.europe-west2.run.app/docs)
+**MCP endpoint:** `https://book-catalogue-27035467540.europe-west2.run.app/mcp`
+
 A read-only API over the book catalogue built by
 [`book-data-pipeline`](https://github.com/ibraheemmawwal/book-data-pipeline).
 
@@ -19,11 +22,21 @@ The MCP surface exists for that, not to restate the HTTP routes in another
 protocol.
 
 ```python
-mcp_servers = [{"type": "url", "name": "book-catalogue", "url": "https://<service>/mcp"}]
+mcp_servers = [
+    {
+        "type": "url",
+        "name": "book-catalogue",
+        "url": "https://book-catalogue-27035467540.europe-west2.run.app/mcp",
+    }
+]
 tools = [{"type": "mcp_toolset", "mcp_server_name": "book-catalogue"}]
 ```
 
 No credential — attach it and ask.
+
+The service scales to zero and the database suspends when idle, so the first
+request after a quiet spell takes a few seconds. Subsequent ones are fast. That
+is the free tier working as intended, not a fault.
 
 | Tool | Answers |
 |---|---|

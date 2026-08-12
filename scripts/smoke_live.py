@@ -39,6 +39,8 @@ async def check_mcp(base: str, checks: Checks) -> None:
         "get_book_provenance",
         "list_contested_books",
         "catalogue_stats",
+        "describe_schema",
+        "run_sql",
     }
     try:
         async with (
@@ -49,6 +51,29 @@ async def check_mcp(base: str, checks: Checks) -> None:
             names = {tool.name for tool in (await session.list_tools()).tools}
             checks.check("MCP handshake completes", True)
             checks.check("every tool is offered", names == expected, ", ".join(sorted(names)))
+
+            schema = (await session.call_tool("describe_schema", {})).structured_content or {}
+            checks.check(
+                "the schema is introspectable",
+                "books" in (schema.get("tables") or {}),
+                ", ".join(sorted(schema.get("tables") or {})),
+            )
+
+            sql = (
+                await session.call_tool("run_sql", {"query": "SELECT count(*) AS n FROM books"})
+            ).structured_content or {}
+            checks.check(
+                "a read-only query runs",
+                bool(sql.get("rows")) and sql["rows"][0].get("n", 0) > 0,
+                str(sql.get("error") or sql.get("rows")),
+            )
+
+            # The check that matters most in production: the deployed service,
+            # not the local parser, refuses the write.
+            refused = (
+                await session.call_tool("run_sql", {"query": "DROP TABLE books"})
+            ).structured_content or {}
+            checks.check("a write is refused", "error" in refused, str(refused)[:120])
 
             body = (await session.call_tool("catalogue_stats", {})).structured_content or {}
             checks.check(

@@ -15,6 +15,7 @@ underneath us.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import subprocess
@@ -23,6 +24,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import asyncpg
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -63,6 +65,14 @@ def _pipeline_checkout(tmp_root: Path) -> Path:
     return target
 
 
+async def _apply_sql(dsn: str, sql: str) -> None:
+    connection = await asyncpg.connect(dsn)
+    try:
+        await connection.execute(sql)
+    finally:
+        await connection.close()
+
+
 @pytest.fixture(scope="session")
 def postgres_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     """A container with the pipeline's schema applied."""
@@ -86,6 +96,17 @@ def postgres_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
             capture_output=True,
             env={**os.environ, "PIPELINE_DATABASE_URL": url},
         )
+
+        # The least-privilege role the SQL tool switches to. Applied here for
+        # the same reason the schema is: a suite that runs without it proves
+        # the parser works and says nothing about the layer behind it.
+        #
+        # Through asyncpg on the simple query protocol: the file is several
+        # statements including a DO block, which a driver that prepares each
+        # statement will not accept as one call.
+        role_sql = Path(__file__).resolve().parents[2] / "scripts" / "sql" / "readonly_role.sql"
+        asyncio.run(_apply_sql(f"postgresql://{base}", role_sql.read_text()))
+
         yield url
 
 

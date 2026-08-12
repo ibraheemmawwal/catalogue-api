@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from api.config import Settings
 from api.repositories import books as book_repo
 from api.repositories import contested as contested_repo
+from api.repositories import introspection as introspection_repo
 from api.repositories import provenance as provenance_repo
 from api.repositories import search as search_repo
 from api.repositories import series as series_repo
@@ -319,6 +320,52 @@ class CatalogueTools:
                 "it, which is not the same as being corroborated."
             ),
         }
+
+    async def describe_schema(self) -> dict[str, Any]:
+        """The queryable schema. See descriptions.DESCRIBE_SCHEMA."""
+        async with self._engine.connect() as connection:
+            tables = await introspection_repo.describe(connection)
+
+        return {
+            "tables": tables,
+            "note": (
+                "Only these tables are queryable. Row counts are planner "
+                "estimates, not exact — precise counts would cost a scan of "
+                "every table to answer a question about shape."
+            ),
+        }
+
+    async def run_sql(self, query: str) -> dict[str, Any]:
+        """A bounded read-only query. See descriptions.RUN_SQL."""
+        try:
+            async with self._engine.connect() as connection:
+                result = await introspection_repo.run_query(
+                    connection, query, readonly_role=self._settings.sql_readonly_role or None
+                )
+        except introspection_repo.QueryRejectedError as rejection:
+            # The rule and the remedy, not just a refusal: "invalid query" ends
+            # the agent's turn, naming the constraint continues it.
+            return {"error": str(rejection)}
+        except Exception as error:
+            return {
+                "error": (
+                    f"The query failed: {type(error).__name__}. Check column names "
+                    "with describe_schema."
+                )
+            }
+
+        payload: dict[str, Any] = {
+            "columns": result.columns,
+            "rows": result.rows,
+            "row_count": result.row_count,
+        }
+        if result.truncated:
+            payload["truncated"] = True
+            payload["note"] = (
+                f"Results were capped at {introspection_repo.MAX_ROWS} rows. Add a "
+                "GROUP BY or a narrower WHERE clause rather than paging."
+            )
+        return payload
 
     async def catalogue_stats(self) -> dict[str, Any]:
         """What is in the catalogue. See descriptions.CATALOGUE_STATS."""

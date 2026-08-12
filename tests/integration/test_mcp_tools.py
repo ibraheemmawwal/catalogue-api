@@ -18,6 +18,7 @@ from mcp.client.streamable_http import streamable_http_client
 from api.config import Settings
 from api.main import create_app
 from api.mcp import descriptions
+from api.repositories import introspection as introspection_repo
 
 pytestmark = pytest.mark.integration
 
@@ -72,6 +73,8 @@ class TestDiscovery:
             "get_book_provenance",
             "list_contested_books",
             "catalogue_stats",
+            "describe_schema",
+            "run_sql",
         }
 
     async def test_every_description_states_when_to_call(
@@ -406,3 +409,90 @@ class TestContestedBooks:
             result = await call(session, "list_contested_books", limit=500)
 
         assert result["shown"] <= 50
+
+
+class TestSchemaIntrospection:
+    async def test_it_describes_the_queryable_tables(
+        self, seeded: Any, api_database_url: str
+    ) -> None:
+        async with mcp_session(api_database_url) as session:
+            result = await call(session, "describe_schema")
+
+        assert "books" in result["tables"]
+        assert "title" in {column["name"] for column in result["tables"]["books"]["columns"]}
+
+    async def test_it_says_the_counts_are_estimates(
+        self, seeded: Any, api_database_url: str
+    ) -> None:
+        # An agent that reports a planner estimate as a fact is worse than one
+        # that reports nothing.
+        async with mcp_session(api_database_url) as session:
+            result = await call(session, "describe_schema")
+
+        assert "estimates" in result["note"]
+
+
+class TestRunSql:
+    async def test_an_agent_can_answer_a_question_no_other_tool_expresses(
+        self, seeded: Any, api_database_url: str
+    ) -> None:
+        # The reason this tool exists: a grouping none of the six typed tools
+        # offers.
+        await seeded.book("A", year=1965)
+        await seeded.book("B", year=1965)
+        await seeded.book("C", year=1984)
+
+        async with mcp_session(api_database_url) as session:
+            result = await call(
+                session,
+                "run_sql",
+                query=(
+                    "SELECT published_year, count(*) AS n FROM books "
+                    "GROUP BY published_year ORDER BY n DESC"
+                ),
+            )
+
+        assert result["rows"][0] == {"published_year": 1965, "n": 2}
+
+    async def test_a_refused_query_comes_back_as_a_usable_error(
+        self, seeded: Any, api_database_url: str
+    ) -> None:
+        """A rejection has to be recoverable, not just correct.
+
+        An agent that receives "invalid query" stops. One that is told which
+        rule it broke, and which tables it may read, writes a better query.
+        """
+        async with mcp_session(api_database_url) as session:
+            result = await call(session, "run_sql", query="SELECT * FROM pg_authid")
+
+        assert "books" in result["error"]
+        assert "rows" not in result
+
+    async def test_a_write_is_refused(self, seeded: Any, api_database_url: str) -> None:
+        async with mcp_session(api_database_url) as session:
+            result = await call(session, "run_sql", query="DELETE FROM books")
+
+        assert "read-only" in result["error"]
+
+    async def test_a_bad_column_is_reported_rather_than_raised(
+        self, seeded: Any, api_database_url: str
+    ) -> None:
+        # A guessed column name is the most likely mistake an agent makes here;
+        # it must come back as text the agent can act on, not a tool crash.
+        async with mcp_session(api_database_url) as session:
+            result = await call(session, "run_sql", query="SELECT nope FROM books")
+
+        assert "describe_schema" in result["error"]
+
+    async def test_a_capped_result_says_so(
+        self, seeded: Any, api_database_url: str, monkeypatch: Any
+    ) -> None:
+        monkeypatch.setattr(introspection_repo, "MAX_ROWS", 2)
+        for title in ("A", "B", "C"):
+            await seeded.book(title)
+
+        async with mcp_session(api_database_url) as session:
+            result = await call(session, "run_sql", query="SELECT title FROM books")
+
+        assert result["truncated"] is True
+        assert "GROUP BY" in result["note"]

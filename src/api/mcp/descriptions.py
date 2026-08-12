@@ -102,6 +102,30 @@ with one source is unanimous only because nothing has contradicted it yet,
 which is not the same thing and is excluded here.
 """
 
+DESCRIBE_SCHEMA = """\
+Show the tables and columns available to query, with approximate row counts.
+
+Call this before writing SQL with run_sql. Guessing at column names produces an
+error you cannot recover from; this is one call that makes the next one work.
+
+Only catalogue tables are listed, and only those are queryable.
+"""
+
+RUN_SQL = """\
+Run a read-only SQL query against the catalogue.
+
+Call this for questions the other tools cannot express — aggregates, groupings,
+comparisons across tables, "how many books per decade", "which authors appear in
+most series". For looking up a specific book or search, the dedicated tools are
+faster and cheaper.
+
+Call describe_schema first if you do not already know the columns.
+
+Only a single SELECT is permitted, only against catalogue tables, and results
+are capped. A rejected query explains which rule it broke, so read the error and
+adjust rather than retrying the same statement.
+"""
+
 CATALOGUE_STATS = """\
 Report what is in the catalogue and how complete it is: totals, per-field
 coverage percentages, which sources contributed, and when it last updated.

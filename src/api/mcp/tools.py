@@ -318,15 +318,35 @@ class CatalogueTools:
         )
 
 
-# Fields worth comparing across sources. Each maps to the key a source's raw
+# Fields worth comparing across sources. Each maps to the keys a source's raw
 # payload uses; sources spell the same fact differently, which is half the
 # reason disagreement is worth surfacing at all.
 _COMPARABLE = {
     "title": ("title",),
     "published_year": ("published", "first_publish_year", "publish_date", "publishedDate"),
     "publisher": ("publisher", "publishers"),
-    "page_count": ("page_count", "number_of_pages", "pageCount"),
+    "page_count": ("page_count", "number_of_pages", "number_of_pages_median", "pageCount"),
 }
+
+# Payload roots to search, in order. Google Books nests every field under
+# volumeInfo, so a flat lookup finds nothing and reports agreement — which is
+# worse than reporting an error, because a confident "the sources agree" is
+# indistinguishable from a real one.
+_PAYLOAD_ROOTS = ("", "volumeInfo")
+
+
+def _readable(payload: dict[str, Any]) -> dict[str, Any]:
+    """Flatten the roots a source might nest its fields under.
+
+    Outer keys win: a field present at the top level is the source's own
+    spelling, not a nested copy.
+    """
+    merged: dict[str, Any] = {}
+    for root in reversed(_PAYLOAD_ROOTS):
+        section = payload if root == "" else payload.get(root)
+        if isinstance(section, dict):
+            merged.update(section)
+    return merged
 
 
 def find_disagreements(sources: list[Any], book: Any) -> list[dict[str, Any]]:
@@ -345,9 +365,10 @@ def find_disagreements(sources: list[Any], book: Any) -> list[dict[str, Any]]:
     for field, keys in _COMPARABLE.items():
         reported: dict[str, str] = {}
         for source in sources:
-            payload = source.raw_payload or {}
-            if not isinstance(payload, dict):
+            raw = source.raw_payload or {}
+            if not isinstance(raw, dict):
                 continue
+            payload = _readable(raw)
             for key in keys:
                 value = payload.get(key)
                 if value in (None, "", []):

@@ -138,3 +138,68 @@ class TestRobustness:
         )
 
         assert found == []
+
+
+class TestNestedPayloads:
+    """Sources that nest their fields.
+
+    Google Books puts everything under volumeInfo. A flat lookup finds nothing
+    and reports agreement — the worst outcome available, because a confident
+    "the sources agree" is indistinguishable from a real one.
+    """
+
+    def test_a_nested_field_is_compared(self) -> None:
+        found = find_disagreements(
+            [
+                source("openlibrary", first_publish_year=1965),
+                SimpleNamespace(
+                    source="googlebooks",
+                    raw_payload={"volumeInfo": {"publishedDate": "1990-09-01"}},
+                ),
+            ],
+            book(),
+        )
+
+        assert [f["field"] for f in found] == ["published_year"]
+
+    def test_a_nested_field_can_also_agree(self) -> None:
+        found = find_disagreements(
+            [
+                source("openlibrary", title="Dune"),
+                SimpleNamespace(
+                    source="googlebooks", raw_payload={"volumeInfo": {"title": "Dune"}}
+                ),
+            ],
+            book(),
+        )
+
+        assert found == []
+
+    def test_a_top_level_field_wins_over_a_nested_one(self) -> None:
+        # The source's own spelling, not a nested copy of it.
+        found = find_disagreements(
+            [
+                SimpleNamespace(
+                    source="odd",
+                    raw_payload={"title": "Outer", "volumeInfo": {"title": "Inner"}},
+                ),
+                source("openlibrary", title="Outer"),
+            ],
+            book(),
+        )
+
+        assert found == []
+
+    def test_page_counts_are_compared_across_spellings(self) -> None:
+        # OL says number_of_pages_median, Google Books says pageCount.
+        found = find_disagreements(
+            [
+                source("openlibrary", number_of_pages_median=412),
+                SimpleNamespace(
+                    source="googlebooks", raw_payload={"volumeInfo": {"pageCount": 896}}
+                ),
+            ],
+            book(),
+        )
+
+        assert [f["field"] for f in found] == ["page_count"]

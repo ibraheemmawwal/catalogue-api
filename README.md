@@ -44,7 +44,22 @@ is the free tier working as intended, not a fault.
 | `get_book` | "Tell me everything about this one" |
 | `get_series` | "What order do I read these in?" |
 | `get_book_provenance` | "Where did this come from, and do sources agree?" |
+| `list_contested_books` | "Which records should I not trust?" |
 | `catalogue_stats` | "How complete is this data?" |
+
+A real answer from the live service:
+
+```
+get_book_provenance("The Fall of Hyperion")
+  sources: goodreads, googlebooks, openlibrary
+  published_year:  googlebooks "1990-02-01"  vs  openlibrary "1990"   -> kept 1990
+  title:           goodreads "…(Hyperion Cantos, #2)"                 -> kept "The Fall of Hyperion"
+```
+
+Disagreements are reported, not resolved. The sources are not equally reliable
+— one is an unofficial scrape used only to adjudicate records where the
+documented sources already conflict — so a conflict is information the caller
+should see rather than something to hide behind a single confident value.
 
 Three things shape the tool design:
 

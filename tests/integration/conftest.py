@@ -33,8 +33,8 @@ from testcontainers.postgres import PostgresContainer
 # Pinned deliberately. An integration suite that tracks the pipeline's head
 # would turn an unrelated upstream migration into a red build here, and a red
 # build nobody caused is a red build nobody reads.
-PIPELINE_SCHEMA_REF = os.environ.get("PIPELINE_SCHEMA_REF", "v2.0.1")
-PINNED_ALEMBIC_REVISION = os.environ.get("PINNED_ALEMBIC_REVISION", "5979d87d772f")
+PIPELINE_SCHEMA_REF = os.environ.get("PIPELINE_SCHEMA_REF", "v2.1")
+PINNED_ALEMBIC_REVISION = os.environ.get("PINNED_ALEMBIC_REVISION", "ed1960ca2558")
 PIPELINE_REPO = os.environ.get(
     "PIPELINE_REPO_URL", "https://github.com/ibraheemmawwal/book-data-pipeline.git"
 )

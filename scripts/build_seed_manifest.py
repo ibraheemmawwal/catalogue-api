@@ -85,7 +85,7 @@ async def main() -> int:
         timeout=30.0,
         headers={"User-Agent": f"book-data-pipeline/2.0 (+{CONTACT})"},
     ) as client:
-        with destination.open("w") as handle:
+        with destination.open("w") as handle:  # noqa: ASYNC230
             for index, subject in enumerate(SUBJECTS):
                 if index:
                     await asyncio.sleep(1.0)  # one request per second

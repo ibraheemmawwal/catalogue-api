@@ -180,6 +180,74 @@ class TestTheRedirectIsCollapsed:
         assert result.is_error is False
 
 
+class TestNothingIsHeldOpen:
+    """The half the 405 missed.
+
+    Refusing GET moved the cost rather than removing it: with the stream
+    refused, a real client held a *POST* open for the same 61.000 seconds,
+    because in Streamable HTTP a POST may answer with an SSE stream too.
+    Measured on the deployed service, on the first reconnect after the 405
+    shipped.
+
+    ``json_response=True`` answers each POST with one JSON body and closes.
+    Every tool here is request-response, so a stream carried one message and
+    then waited — and waiting is the part Cloud Run bills.
+    """
+
+    async def test_a_tool_call_returns_json_rather_than_a_stream(
+        self, seeded: Any, api_database_url: str
+    ) -> None:
+        await seeded.book("Dune", isbn13="9780553380163", year=1965)
+        app = app_for(api_database_url, offer_stream=False)
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+        initialise = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1"},
+            },
+        }
+
+        async with serving(app) as base, httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(f"{base}/mcp", json=initialise, headers=headers)
+
+        assert response.status_code == 200
+        # text/event-stream here is the 61-second hold coming back.
+        assert response.headers["content-type"].startswith("application/json"), (
+            "the transport answered with a stream; a POST can be held open too"
+        )
+
+    async def test_no_request_is_held_open(self, seeded: Any, api_database_url: str) -> None:
+        """The property, stated as time rather than as a header.
+
+        A content-type assertion can pass while something else waits. What
+        costs money is a request that does not end, so this measures the thing
+        that was actually billed: a full session, wall-clock.
+        """
+        await seeded.book("Dune", isbn13="9780553380163", year=1965)
+        app = app_for(api_database_url, offer_stream=False)
+
+        started = asyncio.get_running_loop().time()
+        async with (
+            serving(app) as base,
+            streamable_http_client(f"{base}/mcp") as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            result = await session.call_tool("catalogue_stats", {})
+        elapsed = asyncio.get_running_loop().time() - started
+
+        assert result.is_error is False
+        # The old behaviour was 61.000s for a single held connection.
+        assert elapsed < 15.0, f"a full session took {elapsed:.1f}s; something is being held"
+
+
 class TestItRefusesOnlyThis:
     async def test_the_rest_api_is_untouched(self, seeded: Any, api_database_url: str) -> None:
         app = app_for(api_database_url, offer_stream=False)

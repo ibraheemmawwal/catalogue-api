@@ -136,6 +136,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # registered after it, including the problem-shaped 404 handler.
     mcp_app = mcp.streamable_http_app(
         streamable_http_path="/",
+        # A single JSON body per POST instead of an SSE stream held open until
+        # it is done. Every tool here is request-response, so a stream carries
+        # one message and then waits — and Cloud Run bills a request for its
+        # duration, so waiting is the expensive part.
+        #
+        # Refusing the GET stream was only half of it. With that refused the
+        # client held a *POST* open for the same 61.000 seconds, because a POST
+        # may answer with a stream too: the cost moved verbs rather than going
+        # away. This is the half that closes it, and it makes the transport
+        # consistent — no SSE on either verb, so nothing can be held at all.
+        json_response=True,
         # Cloud Run round-robins across instances, so a session opened on one
         # can be continued on another that has never heard of it. Stateless
         # keeps every request self-contained, which is the only thing that

@@ -24,6 +24,7 @@ from api.deps import AppState, SchemaCache
 from api.errors import ProblemError, http_exception_handler, problem_handler, validation_handler
 from api.logging import configure_logging
 from api.mcp.server import build_mcp_server
+from api.mcp.stream_policy import RefuseServerStreamMiddleware
 from api.rate_limit import RateLimitMiddleware, RateLimitPolicy
 from api.routers import books, health, search, series, stats
 
@@ -85,6 +86,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine=create_engine(active),
         schema_cache=SchemaCache(ttl_seconds=active.readiness_cache_seconds),
     )
+
+    # Before the limiter in source order, so it ends up outside it: a stream
+    # this server never uses should not spend a caller's request budget.
+    if not active.mcp_offer_server_stream:
+        app.add_middleware(RefuseServerStreamMiddleware)
 
     # Outermost, so a refused request costs a comparison rather than a
     # database connection. Added before the routers only because ASGI

@@ -71,6 +71,20 @@ class Settings(BaseSettings):
         default_factory=lambda: ["127.0.0.1", "127.0.0.1:*", "localhost", "localhost:*"]
     )
 
+    # Whether to offer the MCP server-to-client SSE stream on GET /mcp.
+    #
+    # False, because this server pushes nothing: stateless_http, every tool
+    # request-response, no subscriptions, progress or sampling. The stream was
+    # opened and held anyway, and Cloud Run bills a request for its duration —
+    # 61 seconds a connection, reopened immediately, 57 an hour around the
+    # clock. A service with no minimum instances was billed as always-on for a
+    # stream carrying nothing.
+    #
+    # Turn this back on in the same change that adds anything server-initiated.
+    # A pushing server that answers 405 here would simply never deliver, and
+    # nothing would fail loudly enough to notice.
+    mcp_offer_server_stream: bool = False
+
     # The role a caller-supplied SQL query runs as. Set empty only where the
     # role cannot be provisioned; the query then runs with this service's own
     # grants and the allowlist becomes the sole table boundary.

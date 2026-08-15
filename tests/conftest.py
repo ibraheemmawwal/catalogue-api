@@ -24,4 +24,10 @@ def _clean_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     for name in [n for n in os.environ if n.upper().startswith(_MANAGED_PREFIX)]:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("API_DATABASE_URL", "postgresql://user:pw@localhost:5432/catalogue")
+    # Off by default across the suite, and on only where it is the subject.
+    # A shared limiter would make every other test order-dependent: a suite
+    # that happens to run enough requests against one app would start failing
+    # on a limit nobody was testing, and the failure would move around as
+    # tests are added.
+    monkeypatch.setenv("API_RATE_LIMIT_ENABLED", "false")
     yield

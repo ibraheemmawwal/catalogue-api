@@ -76,6 +76,33 @@ class Settings(BaseSettings):
     # grants and the allowlist becomes the sole table boundary.
     sql_readonly_role: str = "catalogue_readonly"
 
+    # A per-instance ceiling on an unauthenticated surface. Not an edge limit:
+    # Cloud Run runs many processes and each counts on its own, so the real
+    # ceiling is this times the instance count. It exists to stop one caller
+    # exhausting one instance's five-connection pool, which an agent in a retry
+    # loop does by accident.
+    #
+    # 120/minute is generous for a human browsing and cheap for the service;
+    # the burst is what absorbs a page that fires several requests at once.
+    rate_limit_enabled: bool = True
+    rate_limit_per_minute: int = Field(default=120, ge=1, le=10_000)
+    rate_limit_burst: int = Field(default=30, ge=1, le=1_000)
+
+    # Lower, because an MCP call can carry a caller-supplied query and a REST
+    # call runs one we wrote. Sharing a budget would price them the same.
+    mcp_rate_limit_per_minute: int = Field(default=30, ge=1, le=10_000)
+    mcp_rate_limit_burst: int = Field(default=10, ge=1, le=1_000)
+
+    # How many proxy hops append to X-Forwarded-For. Counted from the right,
+    # because the left of that header is whatever the caller typed. Cloud Run
+    # appends one. Set it to 0 to key on the peer address and ignore the header
+    # entirely, which is correct when nothing sits in front of this.
+    #
+    # Too high and every caller shares a bucket keyed on a proxy, making the
+    # limit global; too low and the key is attacker-supplied, making it free to
+    # evade.
+    rate_limit_trusted_proxies: int = Field(default=1, ge=0, le=5)
+
     readiness_cache_seconds: float = Field(default=60.0, ge=0, le=300)
     log_level: str = Field(default="INFO")
 

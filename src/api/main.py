@@ -24,6 +24,7 @@ from api.deps import AppState, SchemaCache
 from api.errors import ProblemError, http_exception_handler, problem_handler, validation_handler
 from api.logging import configure_logging
 from api.mcp.server import build_mcp_server
+from api.rate_limit import RateLimitMiddleware, RateLimitPolicy
 from api.routers import books, health, search, series, stats
 
 logger = structlog.get_logger(__name__)
@@ -84,6 +85,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine=create_engine(active),
         schema_cache=SchemaCache(ttl_seconds=active.readiness_cache_seconds),
     )
+
+    # Outermost, so a refused request costs a comparison rather than a
+    # database connection. Added before the routers only because ASGI
+    # middleware wraps in reverse — this still runs first.
+    if active.rate_limit_enabled:
+        app.add_middleware(
+            RateLimitMiddleware,
+            policy=RateLimitPolicy(
+                per_minute=active.rate_limit_per_minute,
+                burst=active.rate_limit_burst,
+                mcp_per_minute=active.mcp_rate_limit_per_minute,
+                mcp_burst=active.mcp_rate_limit_burst,
+                trusted_proxies=active.rate_limit_trusted_proxies,
+            ),
+        )
 
     app.add_exception_handler(ProblemError, problem_handler)
     app.add_exception_handler(HTTPException, http_exception_handler)

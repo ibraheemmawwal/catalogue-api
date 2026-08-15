@@ -136,6 +136,50 @@ class TestTheRefusal:
         assert elapsed < 1.0, f"the refusal took {elapsed:.1f}s; it must not hold the connection"
 
 
+class TestTheRedirectIsCollapsed:
+    """One request per call, not two.
+
+    The sub-app is mounted at /mcp and serves its own root, so Starlette
+    answered a bare /mcp with a 307 to /mcp/ and clients followed it. Harmless
+    until something counted requests: with the rate limiter on, a burst of 25
+    became twelve calls and the live smoke test failed on its second MCP
+    session.
+    """
+
+    async def test_a_bare_path_is_served_rather_than_redirected(
+        self, seeded: Any, api_database_url: str
+    ) -> None:
+        app = app_for(api_database_url, offer_stream=False)
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+
+        async with serving(app) as base, httpx.AsyncClient() as client:
+            # No follow_redirects: a 307 here is the bug.
+            response = await client.post(f"{base}/mcp", json={}, headers=headers)
+
+        assert response.status_code != 307, "the redirect is back; every call now costs two"
+
+    async def test_a_real_session_still_reaches_it(
+        self, seeded: Any, api_database_url: str
+    ) -> None:
+        # Rewriting a path under the router is the kind of change that works
+        # against a raw POST and breaks the client that matters.
+        await seeded.book("Dune", isbn13="9780553380163", year=1965)
+        app = app_for(api_database_url, offer_stream=False)
+
+        async with (
+            serving(app) as base,
+            streamable_http_client(f"{base}/mcp") as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            result = await session.call_tool("catalogue_stats", {})
+
+        assert result.is_error is False
+
+
 class TestItRefusesOnlyThis:
     async def test_the_rest_api_is_untouched(self, seeded: Any, api_database_url: str) -> None:
         app = app_for(api_database_url, offer_stream=False)

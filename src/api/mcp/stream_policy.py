@@ -52,25 +52,43 @@ def _is_mcp_path(path: str, prefix: str) -> bool:
     return path in (prefix, f"{prefix}/")
 
 
-class RefuseServerStreamMiddleware:
-    """Answer ``GET`` on the MCP mount with 405 before the transport sees it.
+class McpTransportMiddleware:
+    """Shape the MCP mount at the edge: one path, and no server stream.
 
     Pure ASGI, because the mounted sub-application is not a FastAPI route and
     a router-level dependency would never run for it.
+
+    Two jobs, and they belong together because both are about what the mount
+    looks like from outside rather than what any tool does.
+
+    **One path.** The sub-app is mounted at ``/mcp`` and serves its own root,
+    so Starlette answers a bare ``/mcp`` with a 307 to ``/mcp/``. Clients
+    follow it, which makes every call two requests and two round trips. That
+    was invisible until a rate limiter started counting: a burst of 25 became
+    twelve calls, and the live smoke test failed on its second MCP session.
+    Rewriting the path here removes the redirect rather than budgeting for it.
+
+    **No server stream.** See the module docstring.
     """
 
-    def __init__(self, app: ASGIApp, *, path_prefix: str = "/mcp") -> None:
+    def __init__(self, app: ASGIApp, *, path_prefix: str = "/mcp", refuse_stream: bool) -> None:
         self._app = app
         self._prefix = path_prefix
+        self._refuse_stream = refuse_stream
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if (
-            scope["type"] == "http"
-            and scope.get("method") == "GET"
-            and _is_mcp_path(scope.get("path", ""), self._prefix)
-        ):
+        if scope["type"] != "http" or not _is_mcp_path(scope.get("path", ""), self._prefix):
+            await self._app(scope, receive, send)
+            return
+
+        if self._refuse_stream and scope.get("method") == "GET":
             await _method_not_allowed(scope, send)
             return
+
+        if scope.get("path") == self._prefix:
+            # The redirect Starlette would otherwise send, taken care of before
+            # anything downstream — including the limiter — has to pay for it.
+            scope = {**scope, "path": f"{self._prefix}/"}
         await self._app(scope, receive, send)
 
 

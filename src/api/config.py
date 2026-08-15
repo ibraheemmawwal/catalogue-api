@@ -102,10 +102,22 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = Field(default=120, ge=1, le=10_000)
     rate_limit_burst: int = Field(default=30, ge=1, le=1_000)
 
-    # Lower, because an MCP call can carry a caller-supplied query and a REST
-    # call runs one we wrote. Sharing a budget would price them the same.
-    mcp_rate_limit_per_minute: int = Field(default=30, ge=1, le=10_000)
-    mcp_rate_limit_burst: int = Field(default=10, ge=1, le=1_000)
+    # Lower than the REST budget, because an MCP call can carry a
+    # caller-supplied query and a REST call runs one we wrote.
+    #
+    # But not much lower, and the burst especially not. 30/minute with a burst
+    # of 10 was sized as though tool calls arrive one at a time. They do not: a
+    # single agent turn is a handshake plus a dozen calls in a few seconds, and
+    # the first deploy of this limiter answered the smoke test's second MCP
+    # session with 429. The limiter is here to stop a runaway retry loop, not
+    # to price ordinary agent work — a burst that a normal conversation trips
+    # is not a safety margin, it is an outage.
+    #
+    # Cost per call is already bounded elsewhere: statement_timeout caps a slow
+    # query and MAX_ROWS caps a large answer, so a minute's worth of calls
+    # cannot run away even at this rate.
+    mcp_rate_limit_per_minute: int = Field(default=60, ge=1, le=10_000)
+    mcp_rate_limit_burst: int = Field(default=25, ge=1, le=1_000)
 
     # How many proxy hops append to X-Forwarded-For. Counted from the right,
     # because the left of that header is whatever the caller typed. Cloud Run

@@ -2,6 +2,13 @@
 # `gcloud builds submit --tag` only looks for one at the repository root.
 steps:
   - name: gcr.io/cloud-builders/docker
+    # BuildKit, because api.Dockerfile mounts a uv cache
+    # (RUN --mount=type=cache). The classic builder does not understand that
+    # flag and fails at the first uv sync with "the --mount option requires
+    # BuildKit" — which reads like a Docker version problem rather than a
+    # missing environment variable.
+    env:
+      - DOCKER_BUILDKIT=1
     args:
       - build
       - -f

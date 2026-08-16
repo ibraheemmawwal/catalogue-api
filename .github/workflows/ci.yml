@@ -12,8 +12,8 @@ concurrency:
 env:
   # The schema this API is written against. Bumping it is a deliberate act:
   # the contract test fails loudly if the tag moves under us.
-  PIPELINE_SCHEMA_REF: v2.1
-  PINNED_ALEMBIC_REVISION: ed1960ca2558
+  PIPELINE_SCHEMA_REF: v2.2
+  PINNED_ALEMBIC_REVISION: c4a1f7b93e02
 
 jobs:
   quality:

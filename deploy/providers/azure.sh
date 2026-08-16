@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Azure Container Apps.
 #
 # Requirements and preflight only, for the same reason as aws.sh: none of this

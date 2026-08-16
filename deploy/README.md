@@ -72,32 +72,48 @@ A provider defines five functions:
 memory, concurrency, request timeout, instance ceiling — so a provider maps
 them rather than reinventing them.
 
-### What AWS and Azure would need
+### AWS
 
-`aws.sh` and `azure.sh` exist and will tell you what they need — requirements
-and preflight are implemented, so `DEPLOY_PROVIDER=aws scripts/deploy.sh
---check` is a real answer. Their deploy functions refuse rather than guess.
+`aws.sh` is implemented and **has never been run against an AWS account**. Read
+it as a careful first draft: the shapes come from the App Runner API, but the
+first real run will find something, and it should happen somewhere it can fail
+harmlessly.
 
-That is deliberate. Nothing in them has been run against an AWS account or an
-Azure subscription, and a deploy script nobody has executed is worse than none:
-it reads as capability and fails on first contact, with an image already built.
-What is written down is checkable; what is not written is honestly absent.
+Likely first failures, in order: an IAM permission the roles do not carry; the
+health check failing because `/live` is reached before the database is; and the
+wait loop timing out, because App Runner's first create takes longer than a
+Cloud Run revision does.
 
-Beyond credentials, one real difference each:
+Three things App Runner does differently, and none is a translation:
 
-- **AWS App Runner has no per-revision URL.** There is no equivalent of a Cloud
-  Run revision tag, so a candidate that serves no traffic has to be a second
-  service — hence `AWS_STAGING_SERVICE`, and two services' worth of cost.
-- **Azure Container Apps has revision labels**, which do what a Cloud Run tag
-  does, so the staging step maps across directly. It is the closest of the
-  three.
+- **No per-revision URL.** No equivalent of a Cloud Run revision tag, so a
+  candidate serving no traffic has to be a second service. `AWS_STAGING_SERVICE`
+  is that, and it costs what a second service costs.
+- **No request timeout.** App Runner's is fixed at 120s. The 20s ceiling here
+  is what caps the cost of a client holding a connection open — the thing that
+  had this service billed around the clock — and it cannot be carried across.
+  A held connection on App Runner costs six times more.
+- **Fixed cpu/memory pairs.** `CPU=1` with `MEMORY=512Mi` is not purchasable:
+  the smallest memory App Runner pairs with a full vCPU is 2 GB. The provider
+  refuses and lists the valid pairs rather than rounding up, because rounding
+  would multiply the memory bill without anyone choosing to.
 
-And one that applies to any new target: `API_MCP_ALLOWED_HOSTS` must name every
-hostname the service answers on, including the candidate's. The MCP transport
-refuses anything else with 421, and the SDK supports wildcards for ports but
-not for hosts. A new hostname that nobody adds is an MCP endpoint that is
-quietly broken there and nowhere else — which is exactly how the second of
-Cloud Run's two URLs went unnoticed.
+The first two are printed by `provider_notes` on every deploy. The third stops
+the deploy.
+
+### Azure
+
+`azure.sh` still implements requirements and preflight only. Container Apps is
+the closest fit of the three — revision labels do what a Cloud Run revision tag
+does — so it is the smaller job of the two remaining.
+
+### Anything new
+
+`API_MCP_ALLOWED_HOSTS` must name every hostname the service answers on,
+including the candidate's. The MCP transport refuses anything else with 421,
+and the SDK supports wildcards for ports but not for hosts. A hostname nobody
+adds is an MCP endpoint quietly broken there and nowhere else — which is how
+the second of Cloud Run's two URLs went unnoticed.
 
 The container itself needs nothing: one Dockerfile, configuration by
 environment variable, and no dependency on any cloud API at runtime.

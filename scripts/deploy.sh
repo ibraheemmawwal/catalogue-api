@@ -41,8 +41,13 @@ It is gitignored and holds no secrets — names and identifiers only.
 TXT
     exit 2
 fi
-# shellcheck source=/dev/null
-set -a; source "${TARGET_FILE}"; set +a
+# set -a exports everything the file defines, so providers see it without each
+# variable being listed twice.
+set -a
+# The target file is chosen at runtime, so shellcheck cannot follow it.
+# shellcheck disable=SC1090
+source "${TARGET_FILE}"
+set +a
 # shellcheck source=../deploy/service.conf
 source "${ROOT}/deploy/service.conf"
 
@@ -69,6 +74,10 @@ preflight() {
     provider_requirements
     printf '\n'
     if provider_preflight; then
+        # Anything this target cannot honour, said before the deploy rather
+        # than discovered from its behaviour afterwards.
+        if declare -f provider_notes >/dev/null; then provider_notes; fi
+        echo
         echo "preflight passed — ${PROVIDER} is ready."
         return 0
     fi

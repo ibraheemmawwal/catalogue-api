@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Cloud Run.
 #
 # Implements the four functions scripts/deploy.sh calls. Everything specific to
@@ -86,7 +87,7 @@ provider_preflight() {
 CANDIDATE_TAG=staging
 
 provider_build() {
-    local version="$1" image="${REGISTRY}/catalogue-api:$1"
+    local image="${REGISTRY}/catalogue-api:$1"
     gcloud builds submit --config cloudbuild.yaml \
         --substitutions="_IMAGE=${image}" --project "${PROJECT}" --quiet >&2
     printf '%s' "${image}"

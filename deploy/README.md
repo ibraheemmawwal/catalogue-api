@@ -72,6 +72,71 @@ A provider defines five functions:
 memory, concurrency, request timeout, instance ceiling — so a provider maps
 them rather than reinventing them.
 
+### Finishing AWS
+
+The code is written; what remains is provisioning and one config change, then a
+first run somewhere it can fail harmlessly.
+
+**Provision** (once, in the target account):
+
+```bash
+aws ecr create-repository --repository-name catalogue-api --region <region>
+
+aws secretsmanager create-secret --name catalogue-database-url \
+    --secret-string "$DATABASE_URL" --region <region>
+
+# Two roles, and they are not interchangeable. The access role is what App
+# Runner assumes to pull from ECR; the instance role is what the running
+# container has, and it needs secretsmanager:GetSecretValue for the secret
+# above. Giving one role both jobs is the usual first mistake.
+aws iam create-role --role-name AppRunnerECRAccess \
+    --assume-role-policy-document file://trust-apprunner-build.json
+aws iam attach-role-policy --role-name AppRunnerECRAccess \
+    --policy-arn arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess
+
+aws iam create-role --role-name CatalogueApiInstance \
+    --assume-role-policy-document file://trust-apprunner-tasks.json
+# then an inline policy allowing secretsmanager:GetSecretValue on that secret
+
+# Optional but recommended: without it App Runner's instance ceiling is 25,
+# far above what this service is sized for.
+aws apprunner create-auto-scaling-configuration \
+    --auto-scaling-configuration-name catalogue --max-size 3 --region <region>
+```
+
+**Change one thing in `service.conf`.** `CPU=1` with `MEMORY=512Mi` is not
+purchasable on App Runner — the smallest memory it pairs with a full vCPU is
+2 GB. For a service this size:
+
+```
+CPU=0.25
+MEMORY=512Mi
+```
+
+The provider refuses rather than rounding up, so this is a hard stop, not a
+warning.
+
+**Fill in `deploy/target.env`** — region, account id, both role ARNs, the
+secret name, and the two service names. Then:
+
+```bash
+DEPLOY_PROVIDER=aws scripts/deploy.sh --check
+DEPLOY_PROVIDER=aws scripts/deploy.sh v1.2.7
+```
+
+**Expect the first run to fail**, and prefer it to fail on a throwaway service
+name. In rough order of likelihood: an IAM permission the roles do not carry;
+the health check failing because `/live` is reached before the database is; the
+wait loop timing out, since App Runner's first create is slower than a Cloud
+Run revision. None of these are guesses about the code — they are the parts
+that could not be exercised without an account.
+
+**Then add the hostnames.** App Runner gives each service its own
+`*.awsapprunner.com` name, and both the production and staging services need
+theirs in `API_MCP_ALLOWED_HOSTS` or MCP answers 421 there and nothing else
+explains why. This is the step most likely to be forgotten, because REST keeps
+working perfectly while it is wrong.
+
 ### AWS
 
 `aws.sh` is implemented and **has never been run against an AWS account**. Read

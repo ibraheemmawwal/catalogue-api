@@ -176,6 +176,73 @@ docker build -f docker/api.Dockerfile -t catalogue-api .
 docker run -p 8000:8000 -e API_DATABASE_URL=postgresql://... catalogue-api
 ```
 
+## Deploying
+
+`deploy/` holds the target, `scripts/deploy.sh` runs the sequence. It builds an
+image, starts it on a URL serving no traffic, runs the smoke script against it,
+and promotes only if that passes — so a broken build leaves production where it
+was and the candidate up for inspection.
+
+```bash
+cp deploy/target.env.example deploy/target.env   # pick a cloud, fill in its names
+scripts/deploy.sh --check                        # what it needs, and what is missing
+scripts/deploy.sh v1.2.7
+```
+
+`--check` prints the target's requirements and then verifies the account behind
+them — cli present and authenticated, registry created, secret stored, service
+account real. It runs before every deploy too, because a missing secret found
+after an image has been built is the same error discovered at the most
+expensive moment.
+
+Google Cloud Run is implemented and in use. AWS App Runner is implemented and
+unverified. Azure Container Apps has requirements and preflight only. See
+`deploy/README.md` for the six-function contract and what each target needs.
+
+## Deploying your own
+
+The awkward step is not the service, it is the data: this API is read-only and
+owns no migrations, so it needs a database that already has the pipeline's
+schema and some rows in it.
+
+**1. A database.** Any PostgreSQL 16+ with `pg_trgm` available. Neon's free
+tier is what this runs on.
+
+**2. The schema.** From
+[book-data-pipeline](https://github.com/ibraheemmawwal/book-data-pipeline), at
+the tag this repository pins — `PIPELINE_SCHEMA_REF` in
+`tests/integration/conftest.py`:
+
+```bash
+git clone --branch v2.2 https://github.com/ibraheemmawwal/book-data-pipeline
+cd book-data-pipeline
+PIPELINE_DATABASE_URL='postgresql+psycopg://...' uv run alembic upgrade head
+```
+
+**3. Rows.** The pipeline's own discovery reads a multi-gigabyte Open Library
+dump, which is right for a real run and wrong for seeding a demo.
+`scripts/build_seed_manifest.py` asks Open Library's search API for a bounded
+set instead and writes the manifest the pipeline already consumes. A few
+hundred polite requests once, not a recurring job.
+
+**4. The read-only role**, which the `run_sql` MCP tool switches to. Apply it
+to every environment, including local — it is idempotent:
+
+```bash
+psql "$DATABASE_URL" -f scripts/sql/readonly_role.sql
+```
+
+**5. Then the service**, as above. Two things that will bite otherwise:
+
+- `API_MCP_ALLOWED_HOSTS` must name **every** hostname the service answers on,
+  including the deploy candidate's. The MCP transport refuses anything else
+  with 421, and the SDK supports wildcards for ports but not for hosts. A
+  hostname nobody adds is an MCP endpoint quietly broken there and nowhere
+  else.
+- The database URL belongs in the target's secret manager, referenced by name.
+  Set as a plain environment variable it is readable by anyone with console
+  access and appears in every `describe`.
+
 ## Development
 
 ```bash

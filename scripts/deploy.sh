@@ -18,22 +18,41 @@
 # traffic tells you whether to ship at all. It has already earned this: the
 # first staged deploy failed on MCP with 421 and production never moved.
 #
-# Usage:  scripts/deploy.sh v1.2.3
-#         PROVIDER=gcp scripts/deploy.sh v1.2.3
+# Usage:  scripts/deploy.sh --check          what the target needs, and what is missing
+#         scripts/deploy.sh v1.2.3        build, verify, promote
+#
+# The target lives in deploy/target.env (copy deploy/target.env.example). One
+# variable picks the cloud; the rest are that cloud's names and identifiers.
 
 set -euo pipefail
 
-VERSION="${1:?usage: scripts/deploy.sh <version>, e.g. v1.2.3}"
-PROVIDER="${PROVIDER:-gcp}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TARGET_FILE="${ROOT}/deploy/target.env"
 
+if [[ ! -f "${TARGET_FILE}" ]]; then
+    cat >&2 <<TXT
+No deployment target configured.
+
+    cp deploy/target.env.example deploy/target.env
+    \$EDITOR deploy/target.env
+    scripts/deploy.sh --check
+
+It is gitignored and holds no secrets — names and identifiers only.
+TXT
+    exit 2
+fi
+# shellcheck source=/dev/null
+set -a; source "${TARGET_FILE}"; set +a
 # shellcheck source=../deploy/service.conf
 source "${ROOT}/deploy/service.conf"
 
+PROVIDER="${DEPLOY_PROVIDER:?DEPLOY_PROVIDER is not set in deploy/target.env}"
 PROVIDER_FILE="${ROOT}/deploy/providers/${PROVIDER}.sh"
 if [[ ! -f "${PROVIDER_FILE}" ]]; then
-    echo "no provider '${PROVIDER}' — expected ${PROVIDER_FILE}" >&2
-    echo "see deploy/README.md for what a provider has to implement." >&2
+    echo "unknown DEPLOY_PROVIDER '${PROVIDER}'." >&2
+    printf 'available: ' >&2
+    basename -a "${ROOT}"/deploy/providers/*.sh 2>/dev/null | sed 's/\.sh$//' | tr '\n' ' ' >&2
+    printf '\nadding one is documented in deploy/README.md.\n' >&2
     exit 2
 fi
 # shellcheck source=/dev/null
@@ -42,7 +61,31 @@ source "${PROVIDER_FILE}"
 step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 smoke() { uv run python "${ROOT}/scripts/smoke_live.py" "$1"; }
 
-step "Building ${VERSION} (${PROVIDER})"
+# Everything the target needs, then whether this machine actually has it.
+# Deliberately before the build: a missing secret or registry discovered after
+# an image is pushed is the same error found at the most expensive moment.
+preflight() {
+    step "Target: ${PROVIDER}"
+    provider_requirements
+    printf '\n'
+    if provider_preflight; then
+        echo "preflight passed — ${PROVIDER} is ready."
+        return 0
+    fi
+    echo >&2
+    echo "preflight failed. Fix the above, then run scripts/deploy.sh --check again." >&2
+    return 1
+}
+
+if [[ "${1:-}" == "--check" ]]; then
+    preflight
+    exit $?
+fi
+
+VERSION="${1:?usage: scripts/deploy.sh <version> | --check}"
+preflight >/dev/null || { preflight; exit 1; }
+
+step "Building ${VERSION} for ${PROVIDER}"
 IMAGE="$(provider_build "${VERSION}")"
 
 step "Deploying a candidate that takes no traffic"

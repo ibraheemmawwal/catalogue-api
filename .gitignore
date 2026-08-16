@@ -12,3 +12,6 @@ htmlcov/
 .env
 .env.*
 !.env.example
+
+# Deployment target. Names and ids only, but per-developer.
+deploy/target.env

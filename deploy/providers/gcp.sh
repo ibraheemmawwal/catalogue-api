@@ -4,10 +4,77 @@
 # Google lives here; everything true of the service regardless of host lives in
 # deploy/service.conf.
 
-: "${PROJECT:=book-data-pipeline-2026}"
-: "${REGION:=europe-west2}"
-: "${REGISTRY:=europe-west2-docker.pkg.dev/${PROJECT}/catalogue}"
-: "${SERVICE_ACCOUNT:=catalogue-api@${PROJECT}.iam.gserviceaccount.com}"
+PROJECT="${GCP_PROJECT:-}"
+REGION="${GCP_REGION:-}"
+REGISTRY="${GCP_REGISTRY:-}"
+SERVICE_ACCOUNT="${GCP_SERVICE_ACCOUNT:-}"
+DATABASE_URL_SECRET="${GCP_DATABASE_URL_SECRET:-}"
+
+provider_requirements() {
+    cat <<'TXT'
+Google Cloud Run needs:
+
+  gcloud, authenticated
+      gcloud auth login
+
+  a project with billing enabled, and these APIs on
+      gcloud services enable run.googleapis.com artifactregistry.googleapis.com \
+          cloudbuild.googleapis.com secretmanager.googleapis.com
+
+  an Artifact Registry repository
+      gcloud artifacts repositories create catalogue \
+          --repository-format=docker --location=<region>
+
+  a service account for the service to run as
+
+  the database URL in Secret Manager
+      printf '%s' "$DATABASE_URL" | gcloud secrets create <name> --data-file=-
+TXT
+}
+
+# Fails on a laptop rather than halfway through a deploy. Every check is a
+# question the deploy would otherwise ask for the first time with an image
+# already built and a revision half-created.
+provider_preflight() {
+    local failures=0
+    _need() { [[ -n "$2" ]] || { echo "  missing: $1 is not set in deploy/target.env" >&2; return 1; }; }
+
+    _need GCP_PROJECT "${PROJECT}" || ((failures++))
+    _need GCP_REGION "${REGION}" || ((failures++))
+    _need GCP_REGISTRY "${REGISTRY}" || ((failures++))
+    _need GCP_SERVICE_ACCOUNT "${SERVICE_ACCOUNT}" || ((failures++))
+    _need GCP_DATABASE_URL_SECRET "${DATABASE_URL_SECRET}" || ((failures++))
+    ((failures == 0)) || return 1
+
+    if ! command -v gcloud >/dev/null; then
+        echo "  missing: gcloud is not on PATH" >&2
+        return 1
+    fi
+    if ! gcloud auth print-access-token >/dev/null 2>&1; then
+        echo "  missing: gcloud is not authenticated — run 'gcloud auth login'" >&2
+        ((failures++))
+    fi
+    if ! gcloud projects describe "${PROJECT}" >/dev/null 2>&1; then
+        echo "  missing: project '${PROJECT}' is not visible to this account" >&2
+        ((failures++))
+    fi
+    # The registry, not just the API: a deploy with the API enabled and no
+    # repository fails after the build, which is the expensive half.
+    if ! gcloud artifacts repositories describe "${REGISTRY##*/}" \
+            --location="${REGION}" --project="${PROJECT}" >/dev/null 2>&1; then
+        echo "  missing: Artifact Registry repository '${REGISTRY##*/}' in ${REGION}" >&2
+        ((failures++))
+    fi
+    if ! gcloud secrets describe "${DATABASE_URL_SECRET}" --project="${PROJECT}" >/dev/null 2>&1; then
+        echo "  missing: secret '${DATABASE_URL_SECRET}' — the service has no database URL without it" >&2
+        ((failures++))
+    fi
+    if ! gcloud iam service-accounts describe "${SERVICE_ACCOUNT}" --project="${PROJECT}" >/dev/null 2>&1; then
+        echo "  missing: service account '${SERVICE_ACCOUNT}'" >&2
+        ((failures++))
+    fi
+    ((failures == 0))
+}
 
 # One fixed tag, reused by every deploy, rather than one per version.
 #

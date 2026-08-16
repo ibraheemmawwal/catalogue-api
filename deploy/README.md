@@ -1,13 +1,30 @@
 # Deploying
 
 ```
-scripts/deploy.sh v1.2.3
+cp deploy/target.env.example deploy/target.env   # pick a cloud, fill in its names
+scripts/deploy.sh --check                        # what it needs, and what is missing
+scripts/deploy.sh v1.2.5                         # build, verify, promote
 ```
 
-Builds the image, starts it on a URL that serves no traffic, runs the smoke
-script against it, and promotes only if that passes. A failure leaves
+`--check` prints the target's requirements and then verifies the account
+behind them: CLI installed, authenticated, registry present, secret present,
+service account real. It runs before every deploy too, because a missing
+secret found after an image has been built is the same error discovered at the
+most expensive moment.
+
+A deploy builds the image, starts it on a URL that serves no traffic, runs the
+smoke script against it, and promotes only if that passes. A failure leaves
 production on the revision it was already serving and the candidate up at its
 own URL for inspection.
+
+## Layout
+
+| File | Holds |
+|---|---|
+| `deploy/target.env` | **Where** — which cloud, and that cloud's names. Gitignored, per-developer, no secrets. |
+| `deploy/service.conf` | **What** — cpu, memory, concurrency, request timeout, instance ceiling, allowed hostnames. Cloud-neutral. |
+| `deploy/providers/<name>.sh` | **How** — that cloud's spelling, behind a fixed set of functions. |
+| `scripts/deploy.sh` | The sequence, which is the same everywhere. |
 
 ## Why it is arranged this way
 
@@ -57,25 +74,30 @@ them rather than reinventing them.
 
 ### What AWS and Azure would need
 
-Only `gcp.sh` exists, and deliberately so: a deploy script that has never been
-run against the thing it deploys is worse than no script, because it reads as
-capability. Writing `aws.sh` and `azure.sh` blind would produce two files that
-look finished and fail on first contact, at the least convenient moment.
+`aws.sh` and `azure.sh` exist and will tell you what they need — requirements
+and preflight are implemented, so `DEPLOY_PROVIDER=aws scripts/deploy.sh
+--check` is a real answer. Their deploy functions refuse rather than guess.
 
-What each needs, beyond translating the table above:
+That is deliberate. Nothing in them has been run against an AWS account or an
+Azure subscription, and a deploy script nobody has executed is worse than none:
+it reads as capability and fails on first contact, with an image already built.
+What is written down is checkable; what is not written is honestly absent.
 
-- **A registry and credentials.** ECR or ACR, and something that can push.
-- **Secrets.** `API_DATABASE_URL` comes from Secret Manager here; the
-  equivalents are AWS Secrets Manager and Azure Key Vault, and the mapping is
-  per-platform.
-- **An unpromoted URL.** This is the part that varies most. Cloud Run gives it
-  free with a revision tag. App Runner has no equivalent, so it takes a second
-  service; Container Apps has revision labels, which are close to Cloud Run's
-  tags.
-- **The hostname list.** `API_MCP_ALLOWED_HOSTS` must name every hostname the
-  service answers on, including the candidate's. The MCP transport refuses
-  anything else with 421, and the SDK supports wildcards for ports but not for
-  hosts. Every new hostname is an entry, or MCP is quietly broken there.
+Beyond credentials, one real difference each:
+
+- **AWS App Runner has no per-revision URL.** There is no equivalent of a Cloud
+  Run revision tag, so a candidate that serves no traffic has to be a second
+  service — hence `AWS_STAGING_SERVICE`, and two services' worth of cost.
+- **Azure Container Apps has revision labels**, which do what a Cloud Run tag
+  does, so the staging step maps across directly. It is the closest of the
+  three.
+
+And one that applies to any new target: `API_MCP_ALLOWED_HOSTS` must name every
+hostname the service answers on, including the candidate's. The MCP transport
+refuses anything else with 421, and the SDK supports wildcards for ports but
+not for hosts. A new hostname that nobody adds is an MCP endpoint that is
+quietly broken there and nowhere else — which is exactly how the second of
+Cloud Run's two URLs went unnoticed.
 
 The container itself needs nothing: one Dockerfile, configuration by
-environment variable, and no dependency on any Google API at runtime.
+environment variable, and no dependency on any cloud API at runtime.

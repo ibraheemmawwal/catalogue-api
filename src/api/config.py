@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     # included, so a bare "127.0.0.1" never matches and every local request is
     # rejected with 421. Deployed hosts arrive without a port and need the bare
     # form.
+    #
+    # Cloud Run publishes two hostnames per service and a third for each
+    # revision tag. MCP was refusing the second one with 421 for as long as it
+    # existed, unnoticed, because nothing had reason to call it — until a
+    # staging deploy did. Deployed hostnames are supplied by
+    # deploy/service.conf; these defaults only have to make a local run work.
     mcp_allowed_hosts: list[str] = Field(
         default_factory=lambda: ["127.0.0.1", "127.0.0.1:*", "localhost", "localhost:*"]
     )
